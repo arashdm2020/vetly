@@ -1,0 +1,7 @@
+'use client';
+import Link from 'next/link';
+import { usePathname } from 'next/navigation';
+import { useClinic } from './clinic-provider';
+import { logout } from '@/features/auth/actions';
+const links = [['/','خانه','⌂'],['/patients','بیماران','♡'],['/appointments','نوبت‌ها','◷'],['/reminders','یادآوری‌ها','◇'],['/settings','تنظیمات','⚙']];
+export function Shell({children}:{children:React.ReactNode}) { const path=usePathname(); const {settings,error}=useClinic(); return <div className="app-shell"><a className="skip-link" href="#main">رفتن به محتوای اصلی</a><aside className="sidebar"><Link className="brand" href="/"><span className="brand-mark">✚</span><span>وتلی<small>همراه روزهای کلینیک</small></span></Link><p className="nav-heading">فضای کلینیک</p><nav aria-label="منوی اصلی">{links.map(([href,title,icon])=><Link key={href} href={href} aria-current={(href==='/'?path==='/':path.startsWith(href))?'page':undefined}><span aria-hidden="true">{icon}</span>{title}</Link>)}</nav><div className="sidebar-note"><span className="status-dot"/> مراقبت، ساده‌تر از همیشه<p>پرونده‌ها و پیگیری‌ها، در یک نگاه.</p></div></aside><div className="workspace"><header className="topbar"><span>{settings.clinicName} <span className="muted">/ فضای کاری</span></span><button onClick={()=>logout()}>خروج</button></header>{error&&<div role="alert" className="error">{error}</div>}<main id="main">{children}</main><footer>وتلی · فرصتی بیشتر برای مراقبت</footer></div></div> }

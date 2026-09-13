@@ -1,0 +1,2 @@
+import Link from 'next/link';
+export default function Appointments(){return <><div className="page-heading"><div><p className="eyebrow">برنامه کلینیک</p><h1>نوبت‌ها</h1></div></div><section className="panel empty"><span aria-hidden="true">◷</span><h2>نوبت‌دهی هنوز فعال نشده است</h2><p>فعلاً می‌توانید زمان پیگیری یک اقدام را در پرونده بیمار ثبت کنید.</p><Link className="primary" href="/patients">پرونده‌های بیماران</Link></section></>}
