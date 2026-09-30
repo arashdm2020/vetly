@@ -33,7 +33,7 @@ export async function processDueReminders() {
       }
       const deliveryId=crypto.randomUUID();
       await database.insert(smsDeliveries).values({id:deliveryId,reminderId:reminder.id,idempotencyKey:reminder.id,provider:config.smsProvider});
-      const result=await provider.send({to:patient.phone,pattern:reminder.type==='vaccination'?config.vaccinePattern:config.taskPattern,
+      const result=await provider.send({to:patient.phone,sender:config.farazSender,pattern:reminder.type==='vaccination'?config.vaccinePattern:config.taskPattern,
         values:{pet:patient.name,date:formatDate(dueDate),clinic:config.clinicName,phone:config.clinicPhone,action:reminder.title}});
       const accepted=result.status==='accepted';
       const lastError=accepted?null:result.reason;

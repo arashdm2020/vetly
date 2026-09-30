@@ -99,6 +99,34 @@ test('SMS adapters serialize templates and distinguish acceptance, rejection and
   assert.equal((await smsProvider('mock','').send(input)).status,'simulated');assert.equal(calls,2);
   assert.equal(renderTemplate('{pet} {date}',input.values),'میلو 1405');
 });
+test('Faraz adapter follows official pattern request and handles ambiguous responses safely',async()=>{
+  const config=structuredClone(defaultSettings);
+  config.smsProvider='faraz';config.smsEnabled=true;config.vaccinePattern.code='vaccine';config.taskPattern.code='task';
+  assert.equal(clinicSettingsSchema.safeParse(config).success,false);
+  config.farazSender='3000505';
+  await saveClinicSettings(config,'FAKE-FARAZ-KEY');
+  assert.equal(await readSmsKey('faraz'),'FAKE-FARAZ-KEY');
+  assert.equal((await clinicSnapshot()).keys.faraz,true);
+  assert(!JSON.stringify(await clinicSnapshot()).includes('FAKE-FARAZ-KEY'));
+  const input={to:'09120000000',sender:config.farazSender,pattern:{...config.registrationPattern,code:'approved-pattern'},values:{clinic:'کلینیک',pet:'میلو',phone:'02100000000',date:'۱۴۰۵/۰۷/۰۸',action:'پیگیری'}};
+  let calls=0;
+  const provider=smsProvider('faraz','FAKE-FARAZ-KEY',async(url,options)=>{
+    calls++;assert.equal(url,'https://api.iranpayamak.com/ws/v1/sms/pattern');
+    assert.equal(options.headers['Api-Key'],'FAKE-FARAZ-KEY');
+    assert.equal(options.redirect,'error');
+    assert.deepEqual(JSON.parse(options.body),{code:'approved-pattern',recipient:input.to,line_number:'3000505',number_format:'persian',attributes:{CLINIC:'کلینیک',PET:'میلو',PHONE:'02100000000'}});
+    return Response.json({status:'success',data:456,messages:null},{status:201});
+  });
+  assert.deepEqual(await provider.send(input),{status:'accepted',messageId:'456'});
+  assert.equal((await provider.send({...input,sender:''})).status,'rejected');assert.equal(calls,1);
+  for(const [response,expected] of [[{status:'error',data:null},'rejected'],[{status:'success',data:null},'unknown'],[{unexpected:true},'unknown']]) {
+    assert.equal((await smsProvider('faraz','fake',async()=>Response.json(response)).send(input)).status,expected);
+  }
+  assert.equal((await smsProvider('faraz','fake',async()=>Response.json({}, {status:500})).send(input)).status,'unknown');
+  assert.equal((await smsProvider('faraz','fake',async()=>{throw new Error('private');}).send(input)).status,'unknown');
+  await saveClinicSettings(defaultSettings,'');
+});
+
 test('registration SMS sends once after persistence; errors never roll back a patient',async()=>{
   const config=structuredClone(defaultSettings);
   config.smsEnabled=true;config.smsProvider='smsir';

@@ -19,7 +19,7 @@ export async function sendRegistrationSms(patient: {id:string;name:string;phone:
     if(!claim || !enabled)return;
     deliveryId=claim.id;
     const key=await readSmsKey(config.smsProvider);
-    const result=await smsProvider(config.smsProvider,key).send({to:patient.phone,pattern:config.registrationPattern,
+    const result=await smsProvider(config.smsProvider,key).send({to:patient.phone,sender:config.farazSender,pattern:config.registrationPattern,
       values:{clinic:config.clinicName,pet:patient.name,phone:config.clinicPhone,date:formatDate(todayISO()),action:'ثبت پرونده'}});
     await database.update(smsDeliveries).set({status:result.status==='accepted'?'sent':result.status==='rejected'?'failed':result.status==='simulated'?'simulated':'unknown',
       providerMessageId:result.status==='accepted'?result.messageId:null,sentAt:result.status==='accepted'?Date.now():null,

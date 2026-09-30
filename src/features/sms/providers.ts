@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import type { ClinicSettings, variableNames } from '@/features/settings/schema';
 
-export type SmsInput = {to:string; pattern:ClinicSettings['vaccinePattern']; values:Record<typeof variableNames[number],string>};
+export type SmsInput = {to:string; sender?:string; pattern:ClinicSettings['vaccinePattern']; values:Record<typeof variableNames[number],string>};
 export type SmsResult = {status:'accepted'; messageId:string}|{status:'simulated'|'rejected'|'unknown'; reason:string};
 export interface SmsProvider { send(input:SmsInput):Promise<SmsResult>; }
 export class MockSmsProvider implements SmsProvider {
@@ -13,7 +13,12 @@ export function smsProvider(name:ClinicSettings['smsProvider'],key:string,transp
     try {
       const parameters=input.pattern.parameters.map(p=>({name:p.name,value:input.values[p.variable]}));
       let response:Response;
-      if(name==='smsir') {
+      if(name==='faraz') {
+        if(!input.sender || !/^\d{1,20}$/.test(input.sender))return {status:'rejected',reason:'شماره خط فرستنده فراز تنظیم نشده است.'};
+        response=await transport('https://api.iranpayamak.com/ws/v1/sms/pattern',{method:'POST',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000),
+          headers:{'Content-Type':'application/json','Accept':'application/json','Api-Key':key},
+          body:JSON.stringify({code:input.pattern.code,recipient:input.to,line_number:input.sender,number_format:'persian',attributes:Object.fromEntries(parameters.map(p=>[p.name,p.value]))})});
+      } else if(name==='smsir') {
         response=await transport('https://api.sms.ir/v1/send/verify',{method:'POST',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000),
           headers:{'Content-Type':'application/json','x-api-key':key},
           body:JSON.stringify({mobile:input.to,templateId:Number(input.pattern.code),parameters})});
@@ -25,7 +30,11 @@ export function smsProvider(name:ClinicSettings['smsProvider'],key:string,transp
       // Any ambiguous response is never retried automatically.
       if(!response.ok)return {status:'unknown',reason:'پاسخ سرویس نامشخص است؛ وضعیت را در پنل بررسی کنید.'};
       const json:unknown=await response.json();
-      if(name==='smsir') {
+      if(name==='faraz') {
+        const parsed=z.object({status:z.enum(['success','error']),data:z.number().nullish()}).safeParse(json);
+        if(parsed.success&&parsed.data.status==='success'&&parsed.data.data&&Number.isSafeInteger(parsed.data.data)&&parsed.data.data>0)return {status:'accepted',messageId:String(parsed.data.data)};
+        if(parsed.success&&parsed.data.status==='error')return {status:'rejected',reason:'درخواست توسط فراز پذیرفته نشد؛ قالب، خط و اعتبار پنل را بررسی کنید.'};
+      } else if(name==='smsir') {
         const parsed=z.object({status:z.number(),data:z.object({messageId:z.union([z.number(),z.string()])}).nullish()}).safeParse(json);
         if(parsed.success&&parsed.data.status===1&&parsed.data.data?.messageId)return {status:'accepted',messageId:String(parsed.data.data.messageId)};
         if(parsed.success&&parsed.data.status!==1)return {status:'rejected',reason:'درخواست توسط سرویس پیامکی پذیرفته نشد.'};

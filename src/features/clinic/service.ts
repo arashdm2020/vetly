@@ -21,7 +21,7 @@ export async function clinicSnapshot(): Promise<ClinicSnapshot> {
   const empty = {notes:'',diagnosis:'',treatment:'',medications:'',nextDate:'',completed:false};
   const registrationDeliveries=await database.select({petId:smsDeliveries.petId,status:smsDeliveries.status}).from(smsDeliveries).where(isNull(smsDeliveries.reminderId));
   const registrationStatus=new Map(registrationDeliveries.map(item=>[item.petId,item.status]));
-  return {patients:patients.map(patient=>({...patient,registrationSmsStatus:registrationStatus.get(patient.id)})), settings:config, keys:{kavenegar:await hasSmsKey('kavenegar'),smsir:await hasSmsKey('smsir')}, records:[
+  return {patients:patients.map(patient=>({...patient,registrationSmsStatus:registrationStatus.get(patient.id)})), settings:config, keys:{faraz:await hasSmsKey('faraz'),kavenegar:await hasSmsKey('kavenegar'),smsir:await hasSmsKey('smsir')}, records:[
     ...visitRows.map(r => ({...empty,id:r.id,petId:r.petId,kind:'visit' as const,title:visitLabels[r.type],date:r.visitedAt,notes:r.complaint||r.notes||'',diagnosis:r.diagnosis||'',treatment:r.treatment||'',medications:r.medications||''})),
     ...vaccineRows.map(r => ({...empty,id:r.id,petId:r.petId,kind:'vaccine' as const,title:r.vaccineName,date:r.administeredAt,nextDate:r.nextDueAt||'',notes:r.notes||''})),
     ...taskRows.map(r => ({...empty,id:r.id,petId:r.petId,kind:'reminder' as const,title:r.title,date:new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tehran'}).format(r.scheduledAt),notes:r.notes||'',completed:r.completedAt!==null})),

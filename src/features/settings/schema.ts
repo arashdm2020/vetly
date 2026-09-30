@@ -19,11 +19,13 @@ export const clinicSettingsSchema = z.object({
   timeZone: z.literal('Asia/Tehran'),
   reminderOffsets: z.array(z.union([z.literal(7), z.literal(1), z.literal(0)])).max(3)
     .refine(values => new Set(values).size === values.length, 'زمان‌های تکراری را حذف کنید.'),
-  smsEnabled: z.boolean(), smsProvider: z.enum(['mock', 'kavenegar', 'smsir']),
+  smsEnabled: z.boolean(), smsProvider: z.enum(['mock', 'kavenegar', 'smsir', 'faraz']),
+  farazSender: z.string().trim().transform(digits).pipe(z.string().regex(/^\d{1,20}$|^$/, 'شماره خط فرستنده فراز معتبر نیست.')).default(''),
   vaccinePattern: pattern, taskPattern: pattern,
   registrationPattern: pattern.default({text:'{clinic}\nپرونده {pet} با موفقیت ثبت شد.\nتلفن کلینیک: {phone}',code:'',parameters:[{name:'CLINIC',variable:'clinic'},{name:'PET',variable:'pet'},{name:'PHONE',variable:'phone'}]}),
 }).strict().superRefine((value, context) => {
   if (!value.smsEnabled) return;
+  if (value.smsProvider === 'faraz' && !value.farazSender) context.addIssue({code:'custom',message:'شماره خط فرستنده فراز را وارد کنید.'});
   if (value.smsProvider === 'mock') context.addIssue({code:'custom', message:'برای ارسال، سرویس پیامکی را انتخاب کنید.'});
   for (const item of [value.vaccinePattern, value.taskPattern, ...(value.registrationPattern.code ? [value.registrationPattern] : [])]) {
     if (!item.code) context.addIssue({code:'custom', message:'شناسه پترن واکسن و پیگیری را وارد کنید.'});
@@ -33,6 +35,7 @@ export const clinicSettingsSchema = z.object({
 });
 export type ClinicSettings = z.infer<typeof clinicSettingsSchema>;
 export const defaultSettings: ClinicSettings = {
+  farazSender: '',
   registrationPattern: {text:'{clinic}\nپرونده {pet} با موفقیت ثبت شد.\nتلفن کلینیک: {phone}',code:'',parameters:[{name:'CLINIC',variable:'clinic'},{name:'PET',variable:'pet'},{name:'PHONE',variable:'phone'}]},
   customSpecies: [],
   clinicName: 'کلینیک دامپزشکی', clinicPhone: '', timeZone: 'Asia/Tehran', reminderOffsets: [7, 1], smsEnabled: false, smsProvider: 'mock',
