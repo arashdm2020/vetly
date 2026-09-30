@@ -11,7 +11,7 @@ export type ClinicSnapshot = { patients: Patient[]; records: RecordEntry[]; sett
 export async function clinicSnapshot(): Promise<ClinicSnapshot> {
   const database = getDatabase();
   const [patients, visitRows, vaccineRows, taskRows, config] = await Promise.all([
-    database.select({id:pets.id,name:pets.name,species:pets.species,owner:owners.fullName,phone:owners.phone})
+    database.select({id:pets.id,name:pets.name,species:pets.species,customSpecies:pets.customSpecies,owner:owners.fullName,phone:owners.phone})
       .from(pets).innerJoin(owners,eq(pets.ownerId,owners.id)).orderBy(desc(pets.createdAt)),
     database.select().from(visits).orderBy(desc(visits.visitedAt)),
     database.select().from(vaccinations).orderBy(desc(vaccinations.administeredAt)),

@@ -8,6 +8,7 @@ export function SettingsForm() {
   const {settings,keys,saveSettings,busy}=useClinic();
   const [form,setForm]=useState<ClinicSettings>(settings);
   const [apiKey,setApiKey]=useState(''),[saved,setSaved]=useState(false);
+  const [speciesName,setSpeciesName]=useState(''),[speciesError,setSpeciesError]=useState('');
   const update=(patch:Partial<ClinicSettings>)=>{setForm({...form,...patch});setSaved(false);};
   const sample={pet:'میلو',date:'۲۲ شهریور ۱۴۰۵',clinic:form.clinicName,phone:form.clinicPhone||'شماره کلینیک',action:'بررسی مجدد'};
   return <><div className="page-heading"><div><p className="eyebrow">فضای کاری شما</p><h1>تنظیمات کلینیک</h1><p className="muted">مشخصات، پیامک‌ها و زمان‌بندی پیگیری‌ها</p></div></div>
@@ -16,6 +17,13 @@ export function SettingsForm() {
       <label>نام کلینیک<input value={form.clinicName} onChange={e=>update({clinicName:e.target.value})} required maxLength={100}/></label>
       <label>شماره تماس<input type="tel" dir="ltr" value={form.clinicPhone} onChange={e=>update({clinicPhone:e.target.value})} maxLength={20}/></label>
     </div><p className="muted">زمان‌بندی بر اساس ساعت تهران و تاریخ شمسی است.</p></section>
+    <section className="panel"><h2>نوع‌های دلخواه حیوان</h2><p className="muted">سگ، گربه، پرنده و سایر از قبل موجودند. نوع‌های دیگری مثل گاو، گوسفند یا جوجه را اضافه کنید.</p>
+      <label>نام نوع حیوان<input value={speciesName} maxLength={60} onChange={e=>{setSpeciesName(e.target.value);setSpeciesError('');}} placeholder="مثلاً گوسفند"/></label>
+      <button type="button" onClick={()=>{const name=speciesName.trim();if(!name||form.customSpecies.includes(name)||['سگ','گربه','پرنده','سایر'].includes(name)){setSpeciesError('نام جدید و غیرتکراری وارد کنید.');return;}if(form.customSpecies.length>=100){setSpeciesError('حداکثر ۱۰۰ نوع دلخواه مجاز است.');return;}update({customSpecies:[...form.customSpecies,name]});setSpeciesName('');setSpeciesError('');}}>+ افزودن نوع حیوان</button>
+      {speciesError&&<p role="alert" className="error">{speciesError}</p>}
+      <ul>{form.customSpecies.map(name=><li key={name}>{name} <button type="button" aria-label={'حذف '+name+' از گزینه‌ها'} onClick={()=>update({customSpecies:form.customSpecies.filter(item=>item!==name)})}>حذف از گزینه‌ها</button></li>)}</ul>
+      <p className="muted">در پایان «ذخیره تنظیمات» را بزنید. حذف گزینه، نوع حیوان را در پرونده‌های قبلی تغییر نمی‌دهد.</p>
+    </section>
     <section className="panel"><h2>سرویس پیامکی</h2><div className="form-grid">
       <label>ارائه‌دهنده<select value={form.smsProvider} onChange={e=>{update({smsProvider:e.target.value as ClinicSettings['smsProvider'],smsEnabled:false});setApiKey('');}}>
         <option value="mock">بدون ارسال واقعی</option><option value="kavenegar">کاوه‌نگار</option><option value="smsir">SMS.ir</option>

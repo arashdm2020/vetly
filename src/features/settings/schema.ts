@@ -9,6 +9,10 @@ const pattern = z.object({
     .refine(items => new Set(items.map(item => item.name)).size === items.length, 'نام پارامترها نباید تکراری باشد.'),
 }).strict();
 export const clinicSettingsSchema = z.object({
+  customSpecies: z.array(z.string().trim().min(1, 'نام نوع حیوان را وارد کنید.').max(60, 'نام نوع حیوان حداکثر ۶۰ نویسه است.'))
+    .max(100, 'حداکثر ۱۰۰ نوع دلخواه مجاز است.')
+    .refine(items => new Set(items).size === items.length && items.every(item => !['سگ','گربه','پرنده','سایر'].includes(item)), 'نوع حیوان تکراری است.')
+    .default([]),
   clinicName: z.string().trim().min(2, 'نام کلینیک را وارد کنید.').max(100),
   clinicPhone: z.string().transform(value => digits(value).replace(/[\s()-]/g, ''))
     .pipe(z.string().regex(/^(0\d{10})?$/, 'شماره تماس را همراه کد وارد کنید.')),
@@ -28,6 +32,7 @@ export const clinicSettingsSchema = z.object({
 });
 export type ClinicSettings = z.infer<typeof clinicSettingsSchema>;
 export const defaultSettings: ClinicSettings = {
+  customSpecies: [],
   clinicName: 'کلینیک دامپزشکی', clinicPhone: '', timeZone: 'Asia/Tehran', reminderOffsets: [7, 1], smsEnabled: false, smsProvider: 'mock',
   vaccinePattern: { text: 'یادآوری {clinic}\nموعد واکسیناسیون {pet}: {date}\nبرای هماهنگی: {phone}', code: '', parameters: [{name:'token',variable:'pet'}, {name:'token2',variable:'date'}] },
   taskPattern: { text: 'یادآوری {clinic}\n{action} برای {pet} در تاریخ {date}\nتماس: {phone}', code: '', parameters: [{name:'token',variable:'pet'}, {name:'token2',variable:'date'}, {name:'token10',variable:'action'}] },

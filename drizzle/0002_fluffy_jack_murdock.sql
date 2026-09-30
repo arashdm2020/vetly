@@ -1,0 +1,1 @@
+ALTER TABLE `pets` ADD `custom_species` text;

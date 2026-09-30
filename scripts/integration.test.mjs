@@ -1,6 +1,7 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readFileSync } from 'node:fs';
+import { createClient } from '@libsql/client';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { eq, sql } from 'drizzle-orm';
@@ -61,6 +62,21 @@ test('settings persist; API key is encrypted, not in snapshot; unsupported patte
   assert(!clinicSettingsSchema.safeParse({...config,vaccinePattern:{...config.vaccinePattern,text:'{unknown}'}}).success);
   assert(!clinicSettingsSchema.safeParse({...config,smsEnabled:true}).success);
 });
+test('custom animal types persist and removing an option preserves patient history',async()=>{
+  const config=await readClinicSettings();
+  await saveClinicSettings({...config,customSpecies:['گاو','گوسفند','جوجه']},'');
+  const patient=await createPatient({name:'آزمون نوع',species:'other',customSpecies:'گوسفند',owner:'صاحب آزمایشی',phone:'09120000000'});
+  assert.equal((await clinicSnapshot()).patients.find(p=>p.id===patient.id).customSpecies,'گوسفند');
+  await assert.rejects(createPatient({name:'آزمون',species:'other',customSpecies:'نام ثبت نشده',owner:'صاحب آزمایشی',phone:'09120000000'}));
+  await saveClinicSettings({...config,customSpecies:[]},'');
+  assert.equal((await clinicSnapshot()).patients.find(p=>p.id===patient.id).customSpecies,'گوسفند');
+  assert(!clinicSettingsSchema.safeParse({...config,customSpecies:['گاو','گاو']}).success);
+  assert(!clinicSettingsSchema.safeParse({...config,customSpecies:['پرنده']}).success);
+  const legacy={...config};
+  delete legacy.customSpecies;
+  assert.deepEqual(clinicSettingsSchema.parse(legacy).customSpecies,[]);
+});
+
 test('SMS adapters serialize templates and distinguish acceptance, rejection and uncertainty without network',async()=>{
   let calls=0;
   const config=structuredClone(defaultSettings);
@@ -115,5 +131,27 @@ test('disabled sending creates no network traffic and future vaccines have sched
   assert.equal((await processDueReminders()).disabled,true);
   assert.equal((await db.select().from(vaccinations).where(eq(vaccinations.id,id)))[0].reminderEnabled,false);
   assert.equal(authConfigured(),false);assert.equal(localDevelopment(),false);
-  assert.equal((await db.get(sql`select count(*) as count from __drizzle_migrations`)).count,1);
+  const journal=JSON.parse(readFileSync('./drizzle/meta/_journal.json','utf8'));
+  assert.equal((await db.get(sql`select count(*) as count from __drizzle_migrations`)).count,journal.entries.length);
+});
+
+test('additive migrations preserve existing patients and medical references',async()=>{
+  const client=createClient({url:'file:'+join(folder,'upgrade.db').replaceAll('\\','/')});
+  try {
+    const statements=file=>readFileSync(file,'utf8').split('--> statement-breakpoint').map(s=>s.trim()).filter(Boolean);
+    await client.batch(statements('./drizzle/0000_certain_ben_urich.sql'),'write');
+    await client.execute('PRAGMA foreign_keys=ON');
+    await client.batch([
+      "INSERT INTO owners(id,full_name,phone,created_at,updated_at) VALUES('owner','Test','09120000000',1,1)",
+      "INSERT INTO pets(id,owner_id,name,species,notes,created_at,updated_at) VALUES('pet','owner','Test','bird','Keep',1,1)",
+      "INSERT INTO visits(id,pet_id,visited_at,type,created_at,updated_at) VALUES('visit','pet','2026-09-01','examination',1,1)",
+    ],'write');
+    await client.batch([...statements('./drizzle/0001_tranquil_golden_guardian.sql'),...statements('./drizzle/0002_fluffy_jack_murdock.sql')],'write');
+    const patient=(await client.execute("SELECT * FROM pets WHERE id='pet'")).rows[0];
+    assert.equal(patient.notes,'Keep');
+    assert.equal(patient.custom_species,null);
+    assert.equal((await client.execute('SELECT pet_id FROM visits')).rows[0].pet_id,'pet');
+    assert.equal((await client.execute('PRAGMA foreign_key_check')).rows.length,0);
+    await assert.rejects(client.execute("UPDATE pets SET weight_grams=-1 WHERE id='pet'"));
+  } finally { client.close(); }
 });

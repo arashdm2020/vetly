@@ -1,6 +1,6 @@
 export const speciesLabels = { dog: 'سگ', cat: 'گربه', bird: 'پرنده', other: 'سایر' };
 export const visitLabels = { examination: 'معاینه عمومی', followup: 'ویزیت مجدد', emergency: 'اورژانس', procedure: 'اقدام درمانی' };
-export type Patient = { id: string; name: string; species: keyof typeof speciesLabels; owner: string; phone: string };
+export type Patient = { id: string; name: string; species: keyof typeof speciesLabels; customSpecies?: string | null; owner: string; phone: string };
 export type RecordEntry = { id: string; petId: string; kind: 'visit' | 'vaccine' | 'reminder'; title: string; date: string; nextDate: string; notes: string; diagnosis: string; treatment: string; medications: string; completed: boolean };
 export function digits(value: string) { return value.replace(/[۰-۹٠-٩]/g, c => String('۰۱۲۳۴۵۶۷۸۹'.includes(c) ? '۰۱۲۳۴۵۶۷۸۹'.indexOf(c) : '٠١٢٣٤٥٦٧٨٩'.indexOf(c))); }
 export function normalizePhone(value: string) { let phone = digits(value).replace(/[\s()-]/g, ''); phone = phone.replace(/^(\+98|0098|98)/, '0'); if (/^9\d{9}$/.test(phone)) phone = '0' + phone; return /^09\d{9}$/.test(phone) ? phone : null; }

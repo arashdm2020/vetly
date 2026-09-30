@@ -15,12 +15,17 @@ export const owners = sqliteTable('owners', {
 export const pets = sqliteTable('pets', {
   id: id(), ownerId: text('owner_id').notNull().references(() => owners.id, { onDelete: 'restrict' }),
   name: text('name').notNull(), species: text('species', { enum: ['dog', 'cat', 'bird', 'other'] }).notNull(),
+  customSpecies: text('custom_species'),
   breed: text('breed'), sex: text('sex', { enum: ['male', 'female', 'unknown'] }).notNull().default('unknown'),
-  birthDate: text('birth_date'), notes: text('notes'), ...timestamps(),
+  birthDate: text('birth_date'), color: text('color'), weightGrams: integer('weight_grams'),
+  microchip: text('microchip'), sterilized: integer('sterilized', { mode: 'boolean' }),
+  allergies: text('allergies'), chronicConditions: text('chronic_conditions'),
+  currentMedications: text('current_medications'), notes: text('notes'), ...timestamps(),
 }, table => [
   index('pets_owner_idx').on(table.ownerId), index('pets_name_idx').on(table.name),
   check('pets_species_check', sql`${table.species} in ('dog','cat','bird','other')`),
   check('pets_sex_check', sql`${table.sex} in ('male','female','unknown')`),
+  check('pets_weight_check', sql`${table.weightGrams} is null or ${table.weightGrams} > 0`),
 ]);
 
 export const visits = sqliteTable('visits', {
@@ -28,7 +33,8 @@ export const visits = sqliteTable('visits', {
   visitedAt: text('visited_at').notNull(),
   type: text('type', { enum: ['examination', 'followup', 'emergency', 'procedure'] }).notNull(),
   complaint: text('complaint'), diagnosis: text('diagnosis'), treatment: text('treatment'),
-  medications: text('medications'), notes: text('notes'), ...timestamps(),
+  medications: text('medications'), notes: text('notes'),
+  archivedAt: integer('archived_at'), ...timestamps(),
 }, table => [
   index('visits_pet_date_idx').on(table.petId, table.visitedAt),
   check('visits_type_check', sql`${table.type} in ('examination','followup','emergency','procedure')`),
@@ -38,7 +44,8 @@ export const vaccinations = sqliteTable('vaccinations', {
   id: id(), petId: text('pet_id').notNull().references(() => pets.id, { onDelete: 'restrict' }),
   vaccineName: text('vaccine_name').notNull(), administeredAt: text('administered_at').notNull(),
   nextDueAt: text('next_due_at'), notes: text('notes'),
-  reminderEnabled: integer('reminder_enabled', { mode: 'boolean' }).notNull().default(false), ...timestamps(),
+  reminderEnabled: integer('reminder_enabled', { mode: 'boolean' }).notNull().default(false),
+  archivedAt: integer('archived_at'), ...timestamps(),
 }, table => [
   index('vaccinations_due_idx').on(table.nextDueAt), index('vaccinations_pet_idx').on(table.petId),
   uniqueIndex('vaccinations_id_pet_idx').on(table.id, table.petId),
@@ -51,6 +58,8 @@ export const appointments = sqliteTable('appointments', {
   status: text('status', { enum: ['scheduled', 'completed', 'cancelled'] }).notNull().default('scheduled'),
   notes: text('notes'), ...timestamps(),
 }, table => [index('appointments_date_idx').on(table.scheduledAt),
+  index('appointments_status_date_idx').on(table.status, table.scheduledAt),
+  index('appointments_pet_idx').on(table.petId),
   check('appointments_status_check', sql`${table.status} in ('scheduled','completed','cancelled')`)]);
 
 export const reminders = sqliteTable('reminders', {
