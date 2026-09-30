@@ -3,6 +3,7 @@ import { getDatabase } from '@/db';
 import { owners, pets } from '@/db/schema';
 import { createPatientSchema } from './schema';
 import { readClinicSettings } from '@/features/settings/service';
+import { sendRegistrationSms } from '@/features/sms/registration';
 
 // Internal service. Wire into authenticated actions only after clinic login is implemented.
 export async function createPatient(input: unknown) {
@@ -18,5 +19,6 @@ export async function createPatient(input: unknown) {
     database.insert(owners).values({ id: ownerId, fullName: patient.owner, phone: patient.phone }),
     database.insert(pets).values({ id: petId, ownerId, name: patient.name, species: patient.species, customSpecies: patient.customSpecies }),
   ]);
+  await sendRegistrationSms({id:petId,name:patient.name,phone:patient.phone});
   return { id: petId, ...patient };
 }

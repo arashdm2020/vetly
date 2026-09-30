@@ -22,6 +22,13 @@
       "when": 1790788536738,
       "tag": "0002_fluffy_jack_murdock",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "6",
+      "when": 1790789351782,
+      "tag": "0003_white_gauntlet",
+      "breakpoints": true
     }
   ]
 }

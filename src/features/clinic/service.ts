@@ -1,8 +1,8 @@
 import 'server-only';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import { z } from 'zod';
 import { getDatabase } from '@/db';
-import { owners, pets, visits, vaccinations, reminders } from '@/db/schema';
+import { owners, pets, visits, vaccinations, reminders, smsDeliveries } from '@/db/schema';
 import { todayISO, visitLabels, type Patient, type RecordEntry } from '@/lib/clinic';
 import { readClinicSettings, hasSmsKey } from '@/features/settings/service';
 import type { ClinicSettings } from '@/features/settings/schema';
@@ -19,7 +19,9 @@ export async function clinicSnapshot(): Promise<ClinicSnapshot> {
     readClinicSettings(),
   ]);
   const empty = {notes:'',diagnosis:'',treatment:'',medications:'',nextDate:'',completed:false};
-  return {patients, settings:config, keys:{kavenegar:await hasSmsKey('kavenegar'),smsir:await hasSmsKey('smsir')}, records:[
+  const registrationDeliveries=await database.select({petId:smsDeliveries.petId,status:smsDeliveries.status}).from(smsDeliveries).where(isNull(smsDeliveries.reminderId));
+  const registrationStatus=new Map(registrationDeliveries.map(item=>[item.petId,item.status]));
+  return {patients:patients.map(patient=>({...patient,registrationSmsStatus:registrationStatus.get(patient.id)})), settings:config, keys:{kavenegar:await hasSmsKey('kavenegar'),smsir:await hasSmsKey('smsir')}, records:[
     ...visitRows.map(r => ({...empty,id:r.id,petId:r.petId,kind:'visit' as const,title:visitLabels[r.type],date:r.visitedAt,notes:r.complaint||r.notes||'',diagnosis:r.diagnosis||'',treatment:r.treatment||'',medications:r.medications||''})),
     ...vaccineRows.map(r => ({...empty,id:r.id,petId:r.petId,kind:'vaccine' as const,title:r.vaccineName,date:r.administeredAt,nextDate:r.nextDueAt||'',notes:r.notes||''})),
     ...taskRows.map(r => ({...empty,id:r.id,petId:r.petId,kind:'reminder' as const,title:r.title,date:new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tehran'}).format(r.scheduledAt),notes:r.notes||'',completed:r.completedAt!==null})),

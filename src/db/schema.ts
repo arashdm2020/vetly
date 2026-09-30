@@ -81,7 +81,8 @@ export const reminders = sqliteTable('reminders', {
 ]);
 
 export const smsDeliveries = sqliteTable('sms_deliveries', {
-  id: id(), reminderId: text('reminder_id').notNull().references(() => reminders.id, { onDelete: 'restrict' }),
+  id: id(), reminderId: text('reminder_id').references(() => reminders.id, { onDelete: 'restrict' }),
+  petId: text('pet_id').references(() => pets.id, { onDelete: 'restrict' }),
   idempotencyKey: text('idempotency_key').notNull(), provider: text('provider').notNull(),
   providerMessageId: text('provider_message_id'),
   status: text('status', { enum: ['pending', 'sent', 'failed', 'unknown', 'simulated'] }).notNull().default('pending'),

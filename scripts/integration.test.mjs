@@ -13,6 +13,8 @@ import { createRecord, clinicSnapshot, scheduledTime } from '../src/features/cli
 import { saveClinicSettings, readClinicSettings, readSmsKey } from '../src/features/settings/service.ts';
 import { defaultSettings, clinicSettingsSchema, renderTemplate } from '../src/features/settings/schema.ts';
 import { smsProvider } from '../src/features/sms/providers.ts';
+import { sendRegistrationSms } from '../src/features/sms/registration.ts';
+import { smsDeliveries } from '../src/db/schema.ts';
 import { processDueReminders } from '../src/features/reminders/process.ts';
 import { todayISO } from '../src/lib/clinic.ts';
 import { encryptSecret, decryptSecret } from '../src/lib/secrets.ts';
@@ -97,6 +99,34 @@ test('SMS adapters serialize templates and distinguish acceptance, rejection and
   assert.equal((await smsProvider('mock','').send(input)).status,'simulated');assert.equal(calls,2);
   assert.equal(renderTemplate('{pet} {date}',input.values),'میلو 1405');
 });
+test('registration SMS sends once after persistence; errors never roll back a patient',async()=>{
+  const config=structuredClone(defaultSettings);
+  config.smsEnabled=true;config.smsProvider='smsir';
+  config.vaccinePattern.code='123';config.taskPattern.code='124';config.registrationPattern.code='125';
+  await saveClinicSettings(config,'test-key');
+  let sends=0;const original=globalThis.fetch;
+  globalThis.fetch=async(url,options)=>{
+    sends++;
+    const body=JSON.parse(options.body);
+    assert.equal(body.templateId,125);
+    assert.deepEqual(body.parameters.map(p=>p.name),['CLINIC','PET','PHONE']);
+    assert((await db.select().from(pets)).some(p=>p.name==='پیامک ثبت'));
+    return Response.json({status:1,data:{messageId:123}});
+  };
+  try {
+    const patient=await createPatient({name:'پیامک ثبت',species:'cat',owner:'مالک آزمون',phone:'09120000000'});
+    await Promise.all([sendRegistrationSms(patient),sendRegistrationSms(patient)]);
+    assert.equal(sends,1);
+    assert.equal((await db.select().from(smsDeliveries).where(eq(smsDeliveries.petId,patient.id)))[0].status,'sent');
+    globalThis.fetch=async()=>{sends++;throw new Error('timeout');};
+    const failed=await createPatient({name:'ثبت با خطای پیامک',species:'bird',owner:'مالک آزمون',phone:'09120000000'});
+    assert.equal((await db.select().from(pets).where(eq(pets.id,failed.id))).length,1);
+    await sendRegistrationSms(failed);
+    assert.equal(sends,2);
+    assert.equal((await db.select().from(smsDeliveries).where(eq(smsDeliveries.petId,failed.id)))[0].status,'unknown');
+  } finally {globalThis.fetch=original;await saveClinicSettings(defaultSettings,'');}
+});
+
 test('concurrent workers claim one reminder once; uncertain send is never retried',async()=>{
   const config=structuredClone(defaultSettings);
   config.smsProvider='kavenegar';config.smsEnabled=true;config.vaccinePattern.code='vaccine';config.taskPattern.code='task';

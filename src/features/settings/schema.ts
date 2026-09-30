@@ -21,10 +21,11 @@ export const clinicSettingsSchema = z.object({
     .refine(values => new Set(values).size === values.length, 'زمان‌های تکراری را حذف کنید.'),
   smsEnabled: z.boolean(), smsProvider: z.enum(['mock', 'kavenegar', 'smsir']),
   vaccinePattern: pattern, taskPattern: pattern,
+  registrationPattern: pattern.default({text:'{clinic}\nپرونده {pet} با موفقیت ثبت شد.\nتلفن کلینیک: {phone}',code:'',parameters:[{name:'CLINIC',variable:'clinic'},{name:'PET',variable:'pet'},{name:'PHONE',variable:'phone'}]}),
 }).strict().superRefine((value, context) => {
   if (!value.smsEnabled) return;
   if (value.smsProvider === 'mock') context.addIssue({code:'custom', message:'برای ارسال، سرویس پیامکی را انتخاب کنید.'});
-  for (const item of [value.vaccinePattern, value.taskPattern]) {
+  for (const item of [value.vaccinePattern, value.taskPattern, ...(value.registrationPattern.code ? [value.registrationPattern] : [])]) {
     if (!item.code) context.addIssue({code:'custom', message:'شناسه پترن واکسن و پیگیری را وارد کنید.'});
     if (value.smsProvider === 'smsir' && !/^[1-9]\d*$/.test(item.code)) context.addIssue({code:'custom', message:'شناسه پترن SMS.ir باید عدد باشد.'});
     if (value.smsProvider === 'kavenegar' && (item.parameters.some(p => !['token','token2','token3','token10','token20'].includes(p.name)) || !item.parameters.some(p => p.name === 'token'))) context.addIssue({code:'custom', message:'پارامترهای کاوه‌نگار باید شامل token و فقط token، token2، token3، token10 یا token20 باشند.'});
@@ -32,6 +33,7 @@ export const clinicSettingsSchema = z.object({
 });
 export type ClinicSettings = z.infer<typeof clinicSettingsSchema>;
 export const defaultSettings: ClinicSettings = {
+  registrationPattern: {text:'{clinic}\nپرونده {pet} با موفقیت ثبت شد.\nتلفن کلینیک: {phone}',code:'',parameters:[{name:'CLINIC',variable:'clinic'},{name:'PET',variable:'pet'},{name:'PHONE',variable:'phone'}]},
   customSpecies: [],
   clinicName: 'کلینیک دامپزشکی', clinicPhone: '', timeZone: 'Asia/Tehran', reminderOffsets: [7, 1], smsEnabled: false, smsProvider: 'mock',
   vaccinePattern: { text: 'یادآوری {clinic}\nموعد واکسیناسیون {pet}: {date}\nبرای هماهنگی: {phone}', code: '', parameters: [{name:'token',variable:'pet'}, {name:'token2',variable:'date'}] },

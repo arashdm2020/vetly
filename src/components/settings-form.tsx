@@ -18,10 +18,10 @@ export function SettingsForm() {
       <label>شماره تماس<input type="tel" dir="ltr" value={form.clinicPhone} onChange={e=>update({clinicPhone:e.target.value})} maxLength={20}/></label>
     </div><p className="muted">زمان‌بندی بر اساس ساعت تهران و تاریخ شمسی است.</p></section>
     <section className="panel"><h2>نوع‌های دلخواه حیوان</h2><p className="muted">سگ، گربه، پرنده و سایر از قبل موجودند. نوع‌های دیگری مثل گاو، گوسفند یا جوجه را اضافه کنید.</p>
-      <label>نام نوع حیوان<input value={speciesName} maxLength={60} onChange={e=>{setSpeciesName(e.target.value);setSpeciesError('');}} placeholder="مثلاً گوسفند"/></label>
-      <button type="button" onClick={()=>{const name=speciesName.trim();if(!name||form.customSpecies.includes(name)||['سگ','گربه','پرنده','سایر'].includes(name)){setSpeciesError('نام جدید و غیرتکراری وارد کنید.');return;}if(form.customSpecies.length>=100){setSpeciesError('حداکثر ۱۰۰ نوع دلخواه مجاز است.');return;}update({customSpecies:[...form.customSpecies,name]});setSpeciesName('');setSpeciesError('');}}>+ افزودن نوع حیوان</button>
+      <div className="species-editor"><label>نام نوع حیوان<input value={speciesName} maxLength={60} onChange={e=>{setSpeciesName(e.target.value);setSpeciesError('');}} placeholder="مثلاً گوسفند"/></label>
+      <button type="button" onClick={()=>{const name=speciesName.trim();if(!name||form.customSpecies.includes(name)||['سگ','گربه','پرنده','سایر'].includes(name)){setSpeciesError('نام جدید و غیرتکراری وارد کنید.');return;}if(form.customSpecies.length>=100){setSpeciesError('حداکثر ۱۰۰ نوع دلخواه مجاز است.');return;}update({customSpecies:[...form.customSpecies,name]});setSpeciesName('');setSpeciesError('');}}>+ افزودن نوع حیوان</button></div>
       {speciesError&&<p role="alert" className="error">{speciesError}</p>}
-      <ul>{form.customSpecies.map(name=><li key={name}>{name} <button type="button" aria-label={'حذف '+name+' از گزینه‌ها'} onClick={()=>update({customSpecies:form.customSpecies.filter(item=>item!==name)})}>حذف از گزینه‌ها</button></li>)}</ul>
+      <ul className="species-options">{form.customSpecies.map(name=><li key={name}>{name} <button type="button" aria-label={'حذف '+name+' از گزینه‌ها'} onClick={()=>update({customSpecies:form.customSpecies.filter(item=>item!==name)})}>حذف از گزینه‌ها</button></li>)}</ul>
       <p className="muted">در پایان «ذخیره تنظیمات» را بزنید. حذف گزینه، نوع حیوان را در پرونده‌های قبلی تغییر نمی‌دهد.</p>
     </section>
     <section className="panel"><h2>سرویس پیامکی</h2><div className="form-grid">
@@ -30,10 +30,10 @@ export function SettingsForm() {
       </select></label>
       <label>کلید API جدید<input type="password" autoComplete="new-password" dir="ltr" value={apiKey} disabled={form.smsProvider==='mock'} onChange={e=>{setApiKey(e.target.value);setSaved(false);}} maxLength={512} placeholder={keys[form.smsProvider]?'کلید ذخیره شده؛ برای تغییر وارد کنید':'کلید پنل پیامکی'}/></label>
     </div><p className="muted">{keys[form.smsProvider]?'کلید این سرویس ذخیره شده است. خالی گذاشتن فیلد، کلید قبلی را حفظ می‌کند.':'کلید هر سرویس جداگانه و رمزگذاری‌شده ذخیره می‌شود.'}</p>
-    <label className="check-row"><input type="checkbox" checked={form.smsEnabled} onChange={e=>update({smsEnabled:e.target.checked})}/> فعال‌سازی ارسال پیامک یادآوری</label>
+    <label className="check-row"><input type="checkbox" checked={form.smsEnabled} onChange={e=>update({smsEnabled:e.target.checked})}/> فعال‌سازی ارسال پیامک‌های کلینیک</label>
     <p className="muted">پترن‌ها باید در پنل سرویس تأیید شده باشند. ذخیره تنظیمات، پیامک ارسال نمی‌کند.</p></section>
-    {(['vaccinePattern','taskPattern'] as const).map(key=><section className="panel" key={key}><h2>{key==='vaccinePattern'?'پیامک واکسیناسیون':'پیامک سایر پیگیری‌ها'}</h2>
-      <div className="form-grid"><label>شناسه پترن در پنل<input value={form[key].code} dir="ltr" maxLength={80} onChange={e=>update({[key]:{...form[key],code:e.target.value}})} placeholder={form.smsProvider==='smsir'?'مثلاً 123456':'نام پترن تأییدشده'}/></label></div>
+    {(['registrationPattern','vaccinePattern','taskPattern'] as const).map(key=><section className="panel" key={key}><h2>{key==='registrationPattern'?'پیامک ثبت پرونده':key==='vaccinePattern'?'پیامک واکسیناسیون':'پیامک سایر پیگیری‌ها'}</h2>
+      {key==='registrationPattern'&&<p className="muted">پس از تنظیم قالب تأییدشده و فعال‌سازی پیامک، برای همه بیماران جدید خودکار ارسال می‌شود. خالی بودن شناسه یعنی ارسال ثبت پرونده آماده نیست. پرونده‌های قبلی پیامک نمی‌گیرند.</p>}<div className="form-grid"><label>شناسه پترن در پنل<input value={form[key].code} dir="ltr" maxLength={80} onChange={e=>update({[key]:{...form[key],code:e.target.value}})} placeholder={form.smsProvider==='smsir'?'مثلاً 123456':'نام پترن تأییدشده'}/></label></div>
       <label>متن مرجع پترن<textarea rows={3} maxLength={500} value={form[key].text} onChange={e=>update({[key]:{...form[key],text:e.target.value}})}/></label>
       <p className="muted">متن واقعی از پترن تأییدشده پنل ارسال می‌شود؛ این متن را مطابق آن نگه دارید.</p>
       <div className="template-variables">{variableNames.map(v=><span className="pill" key={v}>{labels[v]}: <bdi>{'{'+v+'}'}</bdi></span>)}</div>
