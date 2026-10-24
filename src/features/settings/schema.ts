@@ -25,7 +25,6 @@ export const clinicSettingsSchema = z.object({
   registrationPattern: pattern.default({text:'{clinic}\nپرونده {pet} با موفقیت ثبت شد.\nتلفن کلینیک: {phone}',code:'',parameters:[{name:'CLINIC',variable:'clinic'},{name:'PET',variable:'pet'},{name:'PHONE',variable:'phone'}]}),
 }).strict().superRefine((value, context) => {
   if (!value.smsEnabled) return;
-  if (value.smsProvider === 'faraz' && !value.farazSender) context.addIssue({code:'custom',message:'شماره خط فرستنده فراز را وارد کنید.'});
   if (value.smsProvider === 'mock') context.addIssue({code:'custom', message:'برای ارسال، سرویس پیامکی را انتخاب کنید.'});
   for (const item of [value.vaccinePattern, value.taskPattern, ...(value.registrationPattern.code ? [value.registrationPattern] : [])]) {
     if (!item.code) context.addIssue({code:'custom', message:'شناسه پترن واکسن و پیگیری را وارد کنید.'});

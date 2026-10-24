@@ -1,7 +1,8 @@
 'use client';
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useClinic } from './clinic-provider';
 import { renderTemplate, variableNames, type ClinicSettings } from '@/features/settings/schema';
+import type { SmsResult } from '@/features/sms/providers';
 const labels = {pet:'نام حیوان',date:'تاریخ',clinic:'نام کلینیک',phone:'تلفن کلینیک',action:'عنوان پیگیری'};
 
 export function SettingsForm() {
@@ -9,6 +10,11 @@ export function SettingsForm() {
   const [form,setForm]=useState<ClinicSettings>(settings);
   const [apiKey,setApiKey]=useState(''),[saved,setSaved]=useState(false);
   const [speciesName,setSpeciesName]=useState(''),[speciesError,setSpeciesError]=useState('');
+  const testLock=useRef(false);
+  const [testBusy,setTestBusy]=useState(false),[recipient,setRecipient]=useState('');
+  const [testPattern,setTestPattern]=useState<'registrationPattern'|'vaccinePattern'|'taskPattern'>('vaccinePattern');
+  const [testValues,setTestValues]=useState({pet:'آزمایش',date:'۱۴۰۵/۰۸/۰۲',clinic:settings.clinicName,phone:settings.clinicPhone||'02100000000',action:'آزمایش'});
+  const [testResult,setTestResult]=useState<SmsResult>();
   const update=(patch:Partial<ClinicSettings>)=>{setForm({...form,...patch});setSaved(false);};
   const sample={pet:'میلو',date:'۲۲ شهریور ۱۴۰۵',clinic:form.clinicName,phone:form.clinicPhone||'شماره کلینیک',action:'بررسی مجدد'};
   return <><div className="page-heading"><div><p className="eyebrow">فضای کاری شما</p><h1>تنظیمات کلینیک</h1><p className="muted">مشخصات، پیامک‌ها و زمان‌بندی پیگیری‌ها</p></div></div>
@@ -30,7 +36,7 @@ export function SettingsForm() {
       </select></label>
       {form.smsProvider==='faraz'&&<label>شماره خط فرستنده فراز<input dir="ltr" inputMode="numeric" maxLength={20} value={form.farazSender} onChange={e=>update({farazSender:e.target.value})} placeholder="شماره خط مجاز در پنل فراز"/></label>}<label>کلید API جدید<input type="password" autoComplete="new-password" dir="ltr" value={apiKey} disabled={form.smsProvider==='mock'} onChange={e=>{setApiKey(e.target.value);setSaved(false);}} maxLength={512} placeholder={keys[form.smsProvider]?'کلید ذخیره شده؛ برای تغییر وارد کنید':'کلید پنل پیامکی'}/></label>
     </div><p className="muted">{keys[form.smsProvider]?'کلید این سرویس ذخیره شده است. خالی گذاشتن فیلد، کلید قبلی را حفظ می‌کند.':'کلید هر سرویس جداگانه و رمزگذاری‌شده ذخیره می‌شود.'}</p>
-    {form.smsProvider==='faraz'&&<p className="muted">کلید دسترسی API جدید فراز (ایران‌پیامک)، کد پترن تأییدشده و شماره خط مجاز همان حساب را وارد کنید. نام پارامترها باید دقیقاً مطابق قالب پنل، بدون علامت‌های اطرافشان باشد.</p>}<label className="check-row"><input type="checkbox" checked={form.smsEnabled} onChange={e=>update({smsEnabled:e.target.checked})}/> فعال‌سازی ارسال پیامک‌های کلینیک</label>
+    {form.smsProvider==='faraz'&&<p className="muted">کلید دسترسی API جدید فراز (ایران‌پیامک)، کد پترن تأییدشده را وارد کنید. شماره فرستنده اختیاری است. در صورت خالی بودن، ارسال با فرستنده پیش‌فرض یا اشتراکی سرویس آزمایش می‌شود. پشتیبانی این قابلیت به سرویس‌دهنده بستگی دارد. نام پارامترها باید دقیقاً مطابق قالب پنل، بدون علامت‌های اطرافشان باشد.</p>}<label className="check-row"><input type="checkbox" checked={form.smsEnabled} onChange={e=>update({smsEnabled:e.target.checked})}/> فعال‌سازی ارسال پیامک‌های کلینیک</label>
     <p className="muted">پترن‌ها باید در پنل سرویس تأیید شده باشند. ذخیره تنظیمات، پیامک ارسال نمی‌کند.</p></section>
     {(['registrationPattern','vaccinePattern','taskPattern'] as const).map(key=><section className="panel" key={key}><h2>{key==='registrationPattern'?'پیامک ثبت پرونده':key==='vaccinePattern'?'پیامک واکسیناسیون':'پیامک سایر پیگیری‌ها'}</h2>
       {key==='registrationPattern'&&<p className="muted">پس از تنظیم قالب تأییدشده و فعال‌سازی پیامک، برای همه بیماران جدید خودکار ارسال می‌شود. خالی بودن شناسه یعنی ارسال ثبت پرونده آماده نیست. پرونده‌های قبلی پیامک نمی‌گیرند.</p>}<div className="form-grid"><label>شناسه پترن در پنل<input value={form[key].code} dir="ltr" maxLength={80} onChange={e=>update({[key]:{...form[key],code:e.target.value}})} placeholder={form.smsProvider==='smsir'?'مثلاً 123456':'نام پترن تأییدشده'}/></label></div>
@@ -46,6 +52,23 @@ export function SettingsForm() {
       <button type="button" disabled={form[key].parameters.length>=5} onClick={()=>update({[key]:{...form[key],parameters:[...form[key].parameters,{name:'',variable:'pet'}]}})}>+ پارامتر</button>
       <div className="message-sample"><span className="muted">نمونه متن پیامک</span><p>{renderTemplate(form[key].text,sample)}</p><small>{form[key].text.length.toLocaleString('fa-IR')} نویسه در متن مرجع</small></div>
     </section>)}
+    {form.smsProvider==='faraz'&&<section className="panel"><h2>ارسال پیامک آزمایشی</h2>
+      <p className="muted">ارسال واقعی و دارای هزینه، فقط با تنظیمات ذخیره‌شده انجام می‌شود. ارسال بدون شماره فرستنده آزمایشی است و پشتیبانی آن تأیید نشده است. پذیرش به معنی تحویل نیست. در نتیجه نامشخص، پنل فراز را پیش از تلاش جدید بررسی کنید.</p>
+      <label>شماره موبایل خودتان<input type="tel" dir="ltr" value={recipient} maxLength={30} onChange={e=>setRecipient(e.target.value)}/></label>
+      <label>پترن ذخیره‌شده<select value={testPattern} onChange={e=>setTestPattern(e.target.value as typeof testPattern)}>
+        {(['registrationPattern','vaccinePattern','taskPattern'] as const).filter(key=>settings[key].code).map(key=><option key={key} value={key}>{key==='registrationPattern'?'ثبت پرونده':key==='vaccinePattern'?'واکسن':'پیگیری'} — {settings[key].code}</option>)}
+      </select></label>
+      {variableNames.map(name=><label key={name}>{labels[name]} (مقدار آزمایش)<input value={testValues[name]} maxLength={name==='phone'?30:name==='date'?40:name==='pet'?80:100} onChange={e=>setTestValues({...testValues,[name]:e.target.value})}/></label>)}
+      <button type="button" disabled={testBusy||!settings.smsEnabled||settings.smsProvider!=='faraz'||!settings[testPattern].code} onClick={async()=>{
+        if(testLock.current)return;testLock.current=true;setTestBusy(true);setTestResult(undefined);
+        try {
+          const response=await fetch('/api/settings/sms-test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:crypto.randomUUID(),recipient,pattern:testPattern,values:testValues})});
+          setTestResult(await response.json());
+        } catch {setTestResult({status:'unknown',reason:'ارتباط قطع شد؛ پیش از تلاش جدید پنل فراز را بررسی کنید.'});}
+        finally {testLock.current=false;setTestBusy(false);}
+      }}>{testBusy?'در حال ارسال…':'ارسال پیامک آزمایشی'}</button>
+      {testResult&&<p role="status">{testResult.status==='accepted'?'پذیرفته شد — شناسه پیام: '+testResult.messageId:testResult.status==='rejected'?'رد شد — '+testResult.reason:'نامشخص — '+testResult.reason}</p>}
+    </section>}
     <section className="panel"><h2>زمان یادآوری واکسن</h2><div className="offsets">{([7,1,0] as const).map(offset=><label className="check-row" key={offset}><input type="checkbox" checked={form.reminderOffsets.includes(offset)} onChange={e=>update({reminderOffsets:e.target.checked?[...form.reminderOffsets,offset]:form.reminderOffsets.filter(v=>v!==offset)})}/>{offset===0?'روز موعد':offset===1?'یک روز قبل':'هفت روز قبل'}</label>)}</div><p className="muted">تغییر زمان‌ها برای واکسن‌های جدید اعمال می‌شود. غیرفعال‌کردن ارسال، تمام ارسال‌های بعدی را متوقف می‌کند.</p></section>
     <div className="form-actions"><button disabled={busy} className="primary">{busy?'در حال ذخیره…':'ذخیره تنظیمات'}</button>{saved&&<p role="status" className="accent">تنظیمات ذخیره شد.</p>}</div></fieldset>
   </form></>;

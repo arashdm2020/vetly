@@ -7,7 +7,7 @@ import { join } from 'node:path';
 import { eq, sql } from 'drizzle-orm';
 import { migrate } from 'drizzle-orm/libsql/migrator';
 import { getDatabase } from '../src/db/index.ts';
-import { owners, pets, visits, vaccinations, reminders, settings } from '../src/db/schema.ts';
+import { owners, pets, visits, vaccinations, reminders, appointments, settings } from '../src/db/schema.ts';
 import { createPatient } from '../src/features/patients/service.ts';
 import { createRecord, clinicSnapshot, scheduledTime } from '../src/features/clinic/service.ts';
 import { saveClinicSettings, readClinicSettings, readSmsKey } from '../src/features/settings/service.ts';
@@ -102,7 +102,9 @@ test('SMS adapters serialize templates and distinguish acceptance, rejection and
 test('Faraz adapter follows official pattern request and handles ambiguous responses safely',async()=>{
   const config=structuredClone(defaultSettings);
   config.smsProvider='faraz';config.smsEnabled=true;config.vaccinePattern.code='vaccine';config.taskPattern.code='task';
-  assert.equal(clinicSettingsSchema.safeParse(config).success,false);
+  assert.equal(clinicSettingsSchema.safeParse(config).success,true);
+  await saveClinicSettings(config,'FAKE-FARAZ-KEY');
+  assert.equal((await readClinicSettings()).farazSender,'');
   config.farazSender='3000505';
   await saveClinicSettings(config,'FAKE-FARAZ-KEY');
   assert.equal(await readSmsKey('faraz'),'FAKE-FARAZ-KEY');
@@ -118,7 +120,9 @@ test('Faraz adapter follows official pattern request and handles ambiguous respo
     return Response.json({status:'success',data:456,messages:null},{status:201});
   });
   assert.deepEqual(await provider.send(input),{status:'accepted',messageId:'456'});
-  assert.equal((await provider.send({...input,sender:''})).status,'rejected');assert.equal(calls,1);
+  let omitted=0;
+  const noSender=smsProvider('faraz','fake',async(url,options)=>{omitted++;assert.equal(Object.hasOwn(JSON.parse(options.body),'line_number'),false);return Response.json({status:'error',messages:{line_number:['required']}},{status:422});});
+  const rejected=await noSender.send({...input,sender:''});assert.equal(rejected.status,'rejected');assert.match(rejected.reason,/فرستنده/);assert.equal(omitted,1);assert.equal(calls,1);
   for(const [response,expected] of [[{status:'error',data:null},'rejected'],[{status:'success',data:null},'unknown'],[{unexpected:true},'unknown']]) {
     assert.equal((await smsProvider('faraz','fake',async()=>Response.json(response)).send(input)).status,expected);
   }
@@ -212,4 +216,34 @@ test('additive migrations preserve existing patients and medical references',asy
     assert.equal((await client.execute('PRAGMA foreign_key_check')).rows.length,0);
     await assert.rejects(client.execute("UPDATE pets SET weight_grams=-1 WHERE id='pet'"));
   } finally { client.close(); }
+});
+
+
+test('live test endpoint rejects unauthenticated callers before sending',async()=>{
+  const {POST}=await import('../src/app/api/settings/sms-test/route.ts');
+  const original=globalThis.fetch;let calls=0;globalThis.fetch=async()=>{calls++;throw Error('unexpected');};
+  try {const response=await POST(new Request('https://vetly.example/api/settings/sms-test',{method:'POST'}));assert.equal(response.status,401);assert.equal(calls,0);}
+  finally {globalThis.fetch=original;}
+});
+test('test sends validate, claim once, rate limit and never retry uncertainty or touch clinical data',async()=>{
+  const {sendTestSms}=await import('../src/features/sms/test-send.ts');
+  const config=structuredClone(defaultSettings);config.smsProvider='faraz';config.smsEnabled=true;config.vaccinePattern.code='approved';config.taskPattern.code='approved-task';
+  await saveClinicSettings(config,'TEST-ONLY-FARAZ');
+  const input={requestId:crypto.randomUUID(),recipient:'09120000000',pattern:'vaccinePattern',values:{pet:'test',date:'1405',clinic:'test',phone:'02100000000',action:'test'}};
+  const original=globalThis.fetch;let calls=0;
+  const counts=async()=>Promise.all([pets,reminders,appointments].map(table=>db.select({count:sql`count(*)`}).from(table)));
+  const before=await counts();
+  globalThis.fetch=async(url,options)=>{calls++;assert(!Object.hasOwn(JSON.parse(options.body),'line_number'));throw new DOMException('timeout','TimeoutError');};
+  try {
+    await assert.rejects(sendTestSms({...input,recipient:'bad'}));
+    await assert.rejects(sendTestSms({...input,values:{...input.values,pet:''}}));
+    const results=await Promise.all([sendTestSms(input),sendTestSms({...input,requestId:crypto.randomUUID()})]);
+    assert.equal(calls,1);assert(results.some(r=>r.status==='unknown'));assert(results.some(r=>r.status==='rejected'));
+    await db.update(settings).set({updatedAt:0}).where(eq(settings.key,'sms-test:cooldown'));
+    assert.equal((await sendTestSms(input)).status,'unknown');assert.equal(calls,1);
+    await db.update(settings).set({updatedAt:0}).where(eq(settings.key,'sms-test:cooldown'));
+    globalThis.fetch=async()=>{calls++;return Response.json({status:'success',data:998},{status:201});};
+    assert.deepEqual(await sendTestSms({...input,requestId:crypto.randomUUID()}),{status:'accepted',messageId:'998'});
+    assert.deepEqual(await counts(),before);
+  } finally {globalThis.fetch=original;await saveClinicSettings(defaultSettings,'');}
 });

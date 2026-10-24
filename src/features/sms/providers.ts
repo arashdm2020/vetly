@@ -14,10 +14,10 @@ export function smsProvider(name:ClinicSettings['smsProvider'],key:string,transp
       const parameters=input.pattern.parameters.map(p=>({name:p.name,value:input.values[p.variable]}));
       let response:Response;
       if(name==='faraz') {
-        if(!input.sender || !/^\d{1,20}$/.test(input.sender))return {status:'rejected',reason:'شماره خط فرستنده فراز تنظیم نشده است.'};
+        if(input.sender && !/^\d{1,20}$/.test(input.sender))return {status:'rejected',reason:'شماره خط فرستنده فراز تنظیم نشده است.'};
         response=await transport('https://api.iranpayamak.com/ws/v1/sms/pattern',{method:'POST',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000),
           headers:{'Content-Type':'application/json','Accept':'application/json','Api-Key':key},
-          body:JSON.stringify({code:input.pattern.code,recipient:input.to,line_number:input.sender,number_format:'persian',attributes:Object.fromEntries(parameters.map(p=>[p.name,p.value]))})});
+          body:JSON.stringify({code:input.pattern.code,recipient:input.to,...(input.sender?{line_number:input.sender}:{}),number_format:'persian',attributes:Object.fromEntries(parameters.map(p=>[p.name,p.value]))})});
       } else if(name==='smsir') {
         response=await transport('https://api.sms.ir/v1/send/verify',{method:'POST',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000),
           headers:{'Content-Type':'application/json','x-api-key':key},
@@ -28,12 +28,18 @@ export function smsProvider(name:ClinicSettings['smsProvider'],key:string,transp
         response=await transport('https://api.kavenegar.com/v1/'+encodeURIComponent(key)+'/verify/lookup.json',{method:'POST',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000),body});
       }
       // Any ambiguous response is never retried automatically.
-      if(!response.ok)return {status:'unknown',reason:'پاسخ سرویس نامشخص است؛ وضعیت را در پنل بررسی کنید.'};
+      if(!response.ok && name!=='faraz')return {status:'unknown',reason:'پاسخ سرویس نامشخص است؛ وضعیت را در پنل بررسی کنید.'};
       const json:unknown=await response.json();
       if(name==='faraz') {
-        const parsed=z.object({status:z.enum(['success','error']),data:z.number().nullish()}).safeParse(json);
-        if(parsed.success&&parsed.data.status==='success'&&parsed.data.data&&Number.isSafeInteger(parsed.data.data)&&parsed.data.data>0)return {status:'accepted',messageId:String(parsed.data.data)};
-        if(parsed.success&&parsed.data.status==='error')return {status:'rejected',reason:'درخواست توسط فراز پذیرفته نشد؛ قالب، خط و اعتبار پنل را بررسی کنید.'};
+        const parsed=z.object({status:z.enum(['success','error']),data:z.number().nullish(),code:z.union([z.number(),z.string()]).optional(),message:z.string().optional(),messages:z.unknown().optional()}).safeParse(json);
+        if(response.ok&&parsed.success&&parsed.data.status==='success'&&parsed.data.data&&Number.isSafeInteger(parsed.data.data)&&parsed.data.data>0)return {status:'accepted',messageId:String(parsed.data.data)};
+        if(parsed.success&&parsed.data.status==='error') {
+          // Never echo arbitrary provider text: it can contain credentials or request values.
+          const code=String(parsed.data.code??'');
+          const safeCode=/^\d{1,6}$/.test(code)&&!key.includes(code)?` — کد ${code}`:'';
+          const missingLine=JSON.stringify(parsed.data.messages??parsed.data.message??'').includes('line_number');
+          return {status:'rejected',reason:(missingLine?'فراز شماره خط فرستنده را نپذیرفت یا الزامی دانست؛ خط مجاز حساب را تنظیم کنید.':'درخواست توسط فراز پذیرفته نشد؛ قالب، خط و اعتبار پنل را بررسی کنید.')+` (HTTP ${response.status})`+safeCode};
+        }
       } else if(name==='smsir') {
         const parsed=z.object({status:z.number(),data:z.object({messageId:z.union([z.number(),z.string()])}).nullish()}).safeParse(json);
         if(parsed.success&&parsed.data.status===1&&parsed.data.data?.messageId)return {status:'accepted',messageId:String(parsed.data.data.messageId)};
