@@ -247,3 +247,20 @@ test('test sends validate, claim once, rate limit and never retry uncertainty or
     assert.deepEqual(await counts(),before);
   } finally {globalThis.fetch=original;await saveClinicSettings(defaultSettings,'');}
 });
+
+
+test('Faraz validation errors do not require the success envelope and never expose raw secrets',async()=>{
+  const input={to:'09120000000',sender:'',pattern:{...defaultSettings.vaccinePattern,code:'approved'},values:{pet:'test',date:'test',clinic:'test',phone:'test',action:'test'}};
+  for(const payload of [
+    {status:'error',data:{line_number:['required']},message:null},
+    {message:'private-api-key',errors:{line_number:['private-api-key']}},
+    {status:false,data:null,errors:{line_number:['required']}},
+  ]) {
+    let calls=0;
+    const result=await smsProvider('faraz','private-api-key',async()=>{calls++;return Response.json(payload,{status:422});}).send(input);
+    assert.equal(result.status,'rejected');assert.match(result.reason,/HTTP 422/);assert.match(result.reason,/فرستنده/);
+    assert(!result.reason.includes('private-api-key'));assert.equal(calls,1);
+  }
+  const result=await smsProvider('faraz','key',async()=>Response.json({status:'success',data:{id:123}})).send(input);
+  assert.equal(result.status,'unknown');assert.match(result.reason,/HTTP 200/);assert.match(result.reason,/data: object/);
+});
