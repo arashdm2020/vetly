@@ -1,41 +1,52 @@
 name: Process clinic reminders
 on:
   schedule:
-    - cron: '*/5 * * * *'
+    - cron: '2-57/5 * * * *'
   workflow_dispatch:
-permissions: {}
+    inputs:
+      dry_run:
+        description: Check authentication without sending SMS
+        type: boolean
+        default: true
+permissions:
+  id-token: write
 concurrency:
   group: clinic-reminder-worker
   cancel-in-progress: false
 jobs:
   process:
-    # Explicit rollout gate: migrate and deploy before enabling this repository variable.
-    if: vars.REMINDER_WORKER_ENABLED == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 7
     steps:
-      - name: Invoke authenticated worker (no SMS on build or push)
+      - name: Invoke authenticated worker (no long-lived secret)
         env:
-          CRON_SECRET: ${{ secrets.CRON_SECRET }}
           WORKER_URL: https://vetly-kappa.vercel.app/api/internal/reminders/process
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
         shell: bash
         run: |
           set -euo pipefail
-          if [ "${#CRON_SECRET}" -lt 32 ]; then
-            echo '::error::Set repository Actions secret CRON_SECRET to the existing Vercel CRON_SECRET before enabling reminder processing.'
-            exit 1
-          fi
-          # Small batches keep each serverless invocation bounded. Never retry a failed HTTP request.
-          # The worker's durable claims prevent resending an uncertain provider operation.
+          response_file=$(mktemp)
+          header_file=$(mktemp)
+          export HEADER_FILE="$header_file"
+          trap 'rm -f "$response_file" "$header_file"' EXIT
+          chmod 600 "$header_file"
+          python3 - <<'PY'
+          import json, os, urllib.parse, urllib.request
+          audience = os.environ['WORKER_URL']
+          url = os.environ['ACTIONS_ID_TOKEN_REQUEST_URL'] + '&audience=' + urllib.parse.quote(audience, safe='')
+          req = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})
+          with urllib.request.urlopen(req, timeout=20) as response:
+              token = json.load(response)['value']
+          with open(os.environ['HEADER_FILE'], 'w') as target:
+              target.write('Authorization: Bearer ' + token + '\n')
+          PY
+          request_url="$WORKER_URL"
+          if [ "$DRY_RUN" = 'true' ]; then request_url="${WORKER_URL}?dry_run=1"; fi
+          # No retry on failed/ambiguous HTTP; durable per-message claims prevent resend.
           for batch in {1..5}; do
-            response_file=$(mktemp)
-            header_file=$(mktemp)
-            trap 'rm -f "$response_file" "$header_file"' EXIT
-            chmod 600 "$header_file"
-            printf 'Authorization: Bearer %s\n' "$CRON_SECRET" > "$header_file"
             curl --silent --show-error --fail --proto '=https' --max-time 70 \
-              --header "@$header_file" "$WORKER_URL" --output "$response_file"
+              --header "@$header_file" "$request_url" --output "$response_file"
+            python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$response_file"
             processed=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["processed"])' "$response_file")
-            rm -f "$response_file" "$header_file"
             if [ "$processed" -lt 5 ]; then break; fi
           done

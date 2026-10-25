@@ -392,3 +392,38 @@ test('scheduled worker route enforces existing cron secret and never sends while
     assert.equal(response.status,200);assert.equal((await response.json()).disabled,true);
   } finally {if(previous===undefined)delete process.env.CRON_SECRET;else process.env.CRON_SECRET=previous;}
 });
+
+test('GitHub scheduler identity verifies signature and pins audience, repo, ref, workflow and event',async()=>{
+  const {generateKeyPair,exportJWK,createLocalJWKSet,SignJWT}=await import('jose');
+  const {githubWorkerAuthorized,workerAudience}=await import('../src/features/reminders/worker-auth.ts');
+  const {privateKey,publicKey}=await generateKeyPair('RS256');
+  const jwk=await exportJWK(publicKey);jwk.kid='test-only';
+  const keys=createLocalJWKSet({keys:[jwk]});
+  const now=Math.floor(Date.now()/1000);
+  const claims={iss:'https://token.actions.githubusercontent.com',aud:workerAudience,
+    sub:'repo:arashdm2020@114090010/vetly@1368496594:ref:refs/heads/main',
+    iat:now,nbf:now-1,exp:now+300,repository:'arashdm2020/vetly',repository_id:'1368496594',repository_owner_id:'114090010',
+    ref:'refs/heads/main',workflow_ref:'arashdm2020/vetly/.github/workflows/reminders.yml@refs/heads/main',runner_environment:'github-hosted',event_name:'schedule'};
+  const token=async patch=>new SignJWT({...claims,...patch}).setProtectedHeader({alg:'RS256',kid:'test-only'}).sign(privateKey);
+  assert.equal(await githubWorkerAuthorized(await token({}),keys),true);
+  assert.equal(await githubWorkerAuthorized(await token({event_name:'workflow_dispatch'}),keys),true);
+  assert.equal(await githubWorkerAuthorized(await token({sub:'repo:arashdm2020/vetly:ref:refs/heads/main'}),keys),true);
+  for(const patch of [{aud:'wrong'},{iss:'wrong'},{repository_id:'other'},{repository_owner_id:'other'},
+    {repository:'other/repo'},{ref:'refs/heads/feature'},{workflow_ref:'arashdm2020/vetly/.github/workflows/other.yml@refs/heads/main'},
+    {event_name:'pull_request'},{runner_environment:'self-hosted'},{sub:'other'},{exp:now-100},{iat:now-3600},{nbf:now+60}])
+    assert.equal(await githubWorkerAuthorized(await token(patch),keys),false);
+  assert.equal(await githubWorkerAuthorized('invalid',keys),false);
+  const {publicKey:other}=await generateKeyPair('RS256');const otherJwk=await exportJWK(other);otherJwk.kid='test-only';
+  assert.equal(await githubWorkerAuthorized(await token({}),createLocalJWKSet({keys:[otherJwk]})),false);
+});
+
+test('worker dry run authenticates without touching the SMS queue',async()=>{
+  const {GET}=await import('../src/app/api/internal/reminders/process/route.ts');
+  const previous=process.env.CRON_SECRET;process.env.CRON_SECRET='TEST-ONLY-CRON-'.repeat(4);
+  try {
+    const before=await db.select({count:sql`count(*)`}).from(smsDeliveries);
+    const response=await GET(new Request('https://vetly.example/api/internal/reminders/process?dry_run=1',{headers:{authorization:'Bearer '+process.env.CRON_SECRET}}));
+    assert.equal(response.status,200);assert.equal((await response.json()).dryRun,true);
+    assert.deepEqual(await db.select({count:sql`count(*)`}).from(smsDeliveries),before);
+  } finally {if(previous===undefined)delete process.env.CRON_SECRET;else process.env.CRON_SECRET=previous;}
+});

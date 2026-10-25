@@ -50,23 +50,30 @@ GitHub may delay or suspend scheduled jobs, so this is **not a precise timing SL
 For strict timing/availability, use a monitored external scheduler or Vercel Pro Cron.
 The persisted queue is the source of truth; provider timeouts are never retried.
 
-Before enabling the Actions workflow:
+The Actions workflow now uses GitHub OIDC, not a copied long-lived secret. The worker
+verifies GitHub's RS256 signature against its fixed JWKS URL and requires the exact
+audience, repository name and immutable repository/owner IDs, main ref, scheduler
+workflow path, GitHub-hosted runner, and schedule/workflow_dispatch event. Token
+expiry, not-before and maximum age are checked using jose. The existing CRON_SECRET
+path is preserved for other schedulers and no production credential is changed.
 
-1. Apply the additive migration, deploy, and check the app.
-2. In repository Settings → Secrets and variables → Actions, create repository secret
-   `CRON_SECRET` with the **existing** Vercel CRON_SECRET value (do not paste it in code,
-   issues or logs). If the original value is unavailable, coordinate a credential
-   rotation separately; this change never alters production credentials.
-3. Confirm WORKER_URL in `.github/workflows/reminders.yml` matches the production
-   primary domain. It must reach the route without Vercel login/protection redirects.
-4. Review pending legacy reminders: enabling polling can send already-due legacy rows.
-   Failed/unknown/cancelled rows are never automatically reset.
-5. Set repository Actions variable `REMINDER_WORKER_ENABLED` to `true`. This is the
-   explicit rollout gate; it remains off by default. Then observe workflow results.
+Deployment order:
+1. Apply migration 0004, then merge/deploy.
+2. The workflow on the default branch polls automatically every five minutes. No
+   repository secret, repository variable or new runtime environment variable is needed.
+3. Review pending legacy reminders: polling can send already-due legacy rows. No
+   failed/unknown/cancelled row is automatically reset or initial message backfilled.
+4. Manual workflow dispatch defaults to dry_run=true. The authenticated dry-run route
+   checks access without reading or processing the SMS queue. Schedule events process
+   the queue normally. Workflow execution logs contain only aggregate counts.
+5. Verify WORKER_URL matches the production primary domain and does not redirect to
+   Vercel protection. Inspect the first scheduled run for runtime verification.
 
 The workflow runs on schedule or explicit manual dispatch, never on push, PR, CI or
-build. No third-party action or checkout is used. Requests use the existing secret
-in a private temporary header file, without automatic HTTP retry or redirects.
+build. No third-party action or checkout is used. Short-lived tokens are held only
+in a private temporary header file, not logged or put in command arguments. HTTP
+requests never follow redirects or retry automatically. Disable the workflow to
+pause this polling source; disabling SMS in clinic settings also prevents sends.
 
 ## Reliability and status semantics
 
