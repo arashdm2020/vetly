@@ -1,0 +1,52 @@
+name: Process clinic reminders
+on:
+  schedule:
+    - cron: '2-57/5 * * * *'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Check authentication without sending SMS
+        type: boolean
+        default: true
+permissions:
+  id-token: write
+concurrency:
+  group: clinic-reminder-worker
+  cancel-in-progress: false
+jobs:
+  process:
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Invoke authenticated worker (no long-lived secret)
+        env:
+          WORKER_URL: https://vetly-kappa.vercel.app/api/internal/reminders/process
+          DRY_RUN: ${{ github.event.inputs.dry_run || 'false' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          response_file=$(mktemp)
+          header_file=$(mktemp)
+          export HEADER_FILE="$header_file"
+          trap 'rm -f "$response_file" "$header_file"' EXIT
+          chmod 600 "$header_file"
+          python3 - <<'PY'
+          import json, os, urllib.parse, urllib.request
+          audience = os.environ['WORKER_URL']
+          url = os.environ['ACTIONS_ID_TOKEN_REQUEST_URL'] + '&audience=' + urllib.parse.quote(audience, safe='')
+          req = urllib.request.Request(url, headers={'Authorization': 'Bearer ' + os.environ['ACTIONS_ID_TOKEN_REQUEST_TOKEN']})
+          with urllib.request.urlopen(req, timeout=20) as response:
+              token = json.load(response)['value']
+          with open(os.environ['HEADER_FILE'], 'w') as target:
+              target.write('Authorization: Bearer ' + token + '\n')
+          PY
+          request_url="$WORKER_URL"
+          if [ "$DRY_RUN" = 'true' ]; then request_url="${WORKER_URL}?dry_run=1"; fi
+          # No retry on failed/ambiguous HTTP; durable per-message claims prevent resend.
+          for batch in {1..5}; do
+            curl --silent --show-error --fail --proto '=https' --max-time 70 \
+              --header "@$header_file" "$request_url" --output "$response_file"
+            python3 -c 'import json,sys; print(json.dumps(json.load(open(sys.argv[1]))))' "$response_file"
+            processed=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["processed"])' "$response_file")
+            if [ "$processed" -lt 5 ]; then break; fi
+          done

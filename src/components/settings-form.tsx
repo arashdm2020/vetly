@@ -69,7 +69,7 @@ export function SettingsForm() {
       }}>{testBusy?'در حال ارسال…':'ارسال پیامک آزمایشی'}</button>
       {testResult&&<p role="status">{testResult.status==='accepted'?'پذیرفته شد — شناسه پیام: '+testResult.messageId:testResult.status==='rejected'?'رد شد — '+testResult.reason:'نامشخص — '+testResult.reason}</p>}
     </section>}
-    <section className="panel"><h2>زمان یادآوری واکسن</h2><div className="offsets">{([7,1,0] as const).map(offset=><label className="check-row" key={offset}><input type="checkbox" checked={form.reminderOffsets.includes(offset)} onChange={e=>update({reminderOffsets:e.target.checked?[...form.reminderOffsets,offset]:form.reminderOffsets.filter(v=>v!==offset)})}/>{offset===0?'روز موعد':offset===1?'یک روز قبل':'هفت روز قبل'}</label>)}</div><p className="muted">تغییر زمان‌ها برای واکسن‌های جدید اعمال می‌شود. غیرفعال‌کردن ارسال، تمام ارسال‌های بعدی را متوقف می‌کند.</p></section>
+    <section className="panel"><h2>قاعده ارسال پیامک</h2><p>برای رکورد جدید دارای موعد، یک پیام هنگام ثبت و یک پیام نزدیک موعد ارسال می‌شود.</p><ul><li>بیش از ۲۴ ساعت تا موعد: پیام دوم ۲۴ ساعت قبل.</li><li>از بیش از ۳ تا ۲۴ ساعت: پیام دوم ۳ ساعت قبل.</li><li>۳ ساعت یا کمتر: پیام دوم در خود موعد.</li></ul><p className="muted">زمان‌ها به وقت تهران هستند. ساعت خالی، ساعت ثبت را مبنای تاریخ موعد قرار می‌دهد. مراجعه بدون موعد بعدی فقط پیام ثبت دارد. این قاعده برای رکوردهای جدید است؛ پیام‌های قبلی دوباره زمان‌بندی نمی‌شوند. ارسال دوم نیازمند زمان‌بند فعال سرور است. ذخیره این تنظیمات پیامک ارسال نمی‌کند.</p></section>
     <div className="form-actions"><button disabled={busy} className="primary">{busy?'در حال ذخیره…':'ذخیره تنظیمات'}</button>{saved&&<p role="status" className="accent">تنظیمات ذخیره شد.</p>}</div></fieldset>
   </form></>;
 }
