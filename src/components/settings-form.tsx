@@ -1,75 +1,96 @@
 'use client';
-import { useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { BellRing, Building2, Check, FileText, Info, MessageSquare, PawPrint, Plus, Save, ShieldCheck, Trash2 } from 'lucide-react';
 import { useClinic } from './clinic-provider';
-import { renderTemplate, variableNames, type ClinicSettings } from '@/features/settings/schema';
-import type { SmsResult } from '@/features/sms/providers';
-const labels = {pet:'نام حیوان',date:'تاریخ',clinic:'نام کلینیک',phone:'تلفن کلینیک',action:'عنوان پیگیری'};
+import { clinicSettingsSchema, type ClinicSettings } from '@/features/settings/schema';
+import { PageHeader, FormSection, StatusBadge, SavingLabel } from './workspace/primitives';
+import { SectionNavigation } from './workspace/section-navigation';
+import { ConfirmationDialog } from './workspace/confirm-dialog';
+import { SMSTemplateEditor, patternKeys, type PatternKey } from './settings/template-editor';
+import { SMSProviderSettings } from './settings/provider-settings';
+const sections=[
+  {id:'profile',title:'مشخصات کلینیک',detail:'نام و اطلاعات تماس',icon:Building2,scope:'عمومی'},
+  {id:'animals',title:'نوع‌های حیوان',detail:'گزینه‌های ثبت بیمار',icon:PawPrint,scope:'عمومی'},
+  {id:'provider',title:'سرویس پیامک',detail:'اتصال، دسترسی و تست',icon:MessageSquare,scope:'مدیریتی'},
+  {id:'templates',title:'قالب‌های پیامک',detail:'متن و نگاشت پارامترها',icon:FileText,scope:'مدیریتی'},
+  {id:'schedule',title:'زمان‌بندی یادآوری',detail:'قاعده ارسال پیام‌ها',icon:BellRing,scope:'عمومی'},
+] as const;
+type Section=typeof sections[number]['id'];
 
 export function SettingsForm() {
-  const {settings,keys,saveSettings,busy}=useClinic();
-  const [form,setForm]=useState<ClinicSettings>(settings);
-  const [apiKey,setApiKey]=useState(''),[saved,setSaved]=useState(false);
-  const [speciesName,setSpeciesName]=useState(''),[speciesError,setSpeciesError]=useState('');
-  const testLock=useRef(false);
-  const [testBusy,setTestBusy]=useState(false),[recipient,setRecipient]=useState('');
-  const [testPattern,setTestPattern]=useState<'registrationPattern'|'vaccinePattern'|'taskPattern'>('vaccinePattern');
-  const [testValues,setTestValues]=useState({pet:'آزمایش',date:'۱۴۰۵/۰۸/۰۲',clinic:settings.clinicName,phone:settings.clinicPhone||'02100000000',action:'آزمایش'});
-  const [testResult,setTestResult]=useState<SmsResult>();
-  const update=(patch:Partial<ClinicSettings>)=>{setForm({...form,...patch});setSaved(false);};
-  const sample={pet:'میلو',date:'۲۲ شهریور ۱۴۰۵',clinic:form.clinicName,phone:form.clinicPhone||'شماره کلینیک',action:'بررسی مجدد'};
-  return <><div className="page-heading"><div><p className="eyebrow">فضای کاری شما</p><h1>تنظیمات کلینیک</h1><p className="muted">مشخصات، پیامک‌ها و زمان‌بندی پیگیری‌ها</p></div></div>
-  <form className="settings-form" onSubmit={async event=>{event.preventDefault();setSaved(false);if(await saveSettings(form,apiKey)){setSaved(true);setApiKey('');}}}>
-    <fieldset disabled={busy}><section className="panel"><h2>مشخصات کلینیک</h2><div className="form-grid">
-      <label>نام کلینیک<input value={form.clinicName} onChange={e=>update({clinicName:e.target.value})} required maxLength={100}/></label>
-      <label>شماره تماس<input type="tel" dir="ltr" value={form.clinicPhone} onChange={e=>update({clinicPhone:e.target.value})} maxLength={20}/></label>
-    </div><p className="muted">زمان‌بندی بر اساس ساعت تهران و تاریخ شمسی است.</p></section>
-    <section className="panel"><h2>نوع‌های دلخواه حیوان</h2><p className="muted">سگ، گربه، پرنده و سایر از قبل موجودند. نوع‌های دیگری مثل گاو، گوسفند یا جوجه را اضافه کنید.</p>
-      <div className="species-editor"><label>نام نوع حیوان<input value={speciesName} maxLength={60} onChange={e=>{setSpeciesName(e.target.value);setSpeciesError('');}} placeholder="مثلاً گوسفند"/></label>
-      <button type="button" onClick={()=>{const name=speciesName.trim();if(!name||form.customSpecies.includes(name)||['سگ','گربه','پرنده','سایر'].includes(name)){setSpeciesError('نام جدید و غیرتکراری وارد کنید.');return;}if(form.customSpecies.length>=100){setSpeciesError('حداکثر ۱۰۰ نوع دلخواه مجاز است.');return;}update({customSpecies:[...form.customSpecies,name]});setSpeciesName('');setSpeciesError('');}}>+ افزودن نوع حیوان</button></div>
-      {speciesError&&<p role="alert" className="error">{speciesError}</p>}
-      <ul className="species-options">{form.customSpecies.map(name=><li key={name}>{name} <button type="button" aria-label={'حذف '+name+' از گزینه‌ها'} onClick={()=>update({customSpecies:form.customSpecies.filter(item=>item!==name)})}>حذف از گزینه‌ها</button></li>)}</ul>
-      <p className="muted">در پایان «ذخیره تنظیمات» را بزنید. حذف گزینه، نوع حیوان را در پرونده‌های قبلی تغییر نمی‌دهد.</p>
-    </section>
-    <section className="panel"><h2>سرویس پیامکی</h2><div className="form-grid">
-      <label>ارائه‌دهنده<select value={form.smsProvider} onChange={e=>{update({smsProvider:e.target.value as ClinicSettings['smsProvider'],smsEnabled:false});setApiKey('');}}>
-        <option value="mock">بدون ارسال واقعی</option><option value="kavenegar">کاوه‌نگار</option><option value="smsir">SMS.ir</option><option value="faraz">فراز اس‌ام‌اس</option>
-      </select></label>
-      {form.smsProvider==='faraz'&&<label>شماره خط فرستنده فراز<input dir="ltr" inputMode="numeric" maxLength={20} value={form.farazSender} onChange={e=>update({farazSender:e.target.value})} placeholder="اختیاری؛ پیش‌فرض 90008361"/></label>}<label>کلید API جدید<input type="password" autoComplete="new-password" dir="ltr" value={apiKey} disabled={form.smsProvider==='mock'} onChange={e=>{setApiKey(e.target.value);setSaved(false);}} maxLength={512} placeholder={keys[form.smsProvider]?'کلید ذخیره شده؛ برای تغییر وارد کنید':'کلید پنل پیامکی'}/></label>
-    </div><p className="muted">{keys[form.smsProvider]?'کلید این سرویس ذخیره شده است. خالی گذاشتن فیلد، کلید قبلی را حفظ می‌کند.':'کلید هر سرویس جداگانه و رمزگذاری‌شده ذخیره می‌شود.'}</p>
-    {form.smsProvider==='faraz'&&<p className="muted">کلید دسترسی API جدید فراز (ایران‌پیامک)، کد پترن تأییدشده را وارد کنید. اگر شماره خط فرستنده خالی باشد، خط خدماتی اشتراکی 90008361 (طبق پاسخ پشتیبانی فراز) استفاده می‌شود. برای استفاده از خط اختصاصی، شماره مجاز حساب را وارد کنید. نام پارامترها باید دقیقاً مطابق قالب پنل، بدون علامت‌های اطرافشان باشد.</p>}<label className="check-row"><input type="checkbox" checked={form.smsEnabled} onChange={e=>update({smsEnabled:e.target.checked})}/> فعال‌سازی ارسال پیامک‌های کلینیک</label>
-    <p className="muted">پترن‌ها باید در پنل سرویس تأیید شده باشند. ذخیره تنظیمات، پیامک ارسال نمی‌کند.</p></section>
-    {(['registrationPattern','vaccinePattern','taskPattern'] as const).map(key=><section className="panel" key={key}><h2>{key==='registrationPattern'?'پیامک ثبت پرونده':key==='vaccinePattern'?'پیامک واکسیناسیون':'پیامک سایر پیگیری‌ها'}</h2>
-      {key==='registrationPattern'&&<p className="muted">پس از تنظیم قالب تأییدشده و فعال‌سازی پیامک، برای همه بیماران جدید خودکار ارسال می‌شود. خالی بودن شناسه یعنی ارسال ثبت پرونده آماده نیست. پرونده‌های قبلی پیامک نمی‌گیرند.</p>}<div className="form-grid"><label>شناسه پترن در پنل<input value={form[key].code} dir="ltr" maxLength={80} onChange={e=>update({[key]:{...form[key],code:e.target.value}})} placeholder={form.smsProvider==='smsir'?'مثلاً 123456':'نام پترن تأییدشده'}/></label></div>
-      <label>متن مرجع پترن<textarea rows={3} maxLength={500} value={form[key].text} onChange={e=>update({[key]:{...form[key],text:e.target.value}})}/></label>
-      <p className="muted">متن واقعی از پترن تأییدشده پنل ارسال می‌شود؛ این متن را مطابق آن نگه دارید.</p>
-      <div className="template-variables">{variableNames.map(v=><span className="pill" key={v}>{labels[v]}: <bdi>{'{'+v+'}'}</bdi></span>)}</div>
-      <h3>پارامترهای پترن</h3><p className="muted">نام پارامترها را دقیقاً مطابق پنل وارد کنید؛ برای کاوه‌نگار: token، token2، token3، token10، token20.</p>
-      {form[key].parameters.map((parameter,index)=><div className="parameter-row" key={index}>
-        <label>نام پارامتر<input dir="ltr" value={parameter.name} maxLength={30} onChange={e=>update({[key]:{...form[key],parameters:form[key].parameters.map((p,i)=>i===index?{...p,name:e.target.value}:p)}})}/></label>
-        <label>مقدار<select value={parameter.variable} onChange={e=>update({[key]:{...form[key],parameters:form[key].parameters.map((p,i)=>i===index?{...p,variable:e.target.value as typeof variableNames[number]}:p)}})}>{variableNames.map(v=><option key={v} value={v}>{labels[v]}</option>)}</select></label>
-        <button type="button" aria-label={'حذف پارامتر '+(index+1)} disabled={form[key].parameters.length===1} onClick={()=>update({[key]:{...form[key],parameters:form[key].parameters.filter((_,i)=>i!==index)}})}>حذف</button>
-      </div>)}
-      <button type="button" disabled={form[key].parameters.length>=5} onClick={()=>update({[key]:{...form[key],parameters:[...form[key].parameters,{name:'',variable:'pet'}]}})}>+ پارامتر</button>
-      <div className="message-sample"><span className="muted">نمونه متن پیامک</span><p>{renderTemplate(form[key].text,sample)}</p><small>{form[key].text.length.toLocaleString('fa-IR')} نویسه در متن مرجع</small></div>
-    </section>)}
-    {form.smsProvider==='faraz'&&<section className="panel"><h2>ارسال پیامک آزمایشی</h2>
-      <p className="muted">ارسال واقعی و دارای هزینه، فقط با تنظیمات ذخیره‌شده انجام می‌شود. اگر شماره فرستنده خالی باشد، خط اشتراکی 90008361 استفاده می‌شود. پذیرش به معنی تحویل نیست. در نتیجه نامشخص، پنل فراز را پیش از تلاش جدید بررسی کنید.</p>
-      <label>شماره موبایل خودتان<input type="tel" dir="ltr" value={recipient} maxLength={30} onChange={e=>setRecipient(e.target.value)}/></label>
-      <label>پترن ذخیره‌شده<select value={testPattern} onChange={e=>setTestPattern(e.target.value as typeof testPattern)}>
-        {(['registrationPattern','vaccinePattern','taskPattern'] as const).filter(key=>settings[key].code).map(key=><option key={key} value={key}>{key==='registrationPattern'?'ثبت پرونده':key==='vaccinePattern'?'واکسن':'پیگیری'} — {settings[key].code}</option>)}
-      </select></label>
-      {variableNames.map(name=><label key={name}>{labels[name]} (مقدار آزمایش)<input value={testValues[name]} maxLength={name==='phone'?30:name==='date'?40:name==='pet'?80:100} onChange={e=>setTestValues({...testValues,[name]:e.target.value})}/></label>)}
-      <button type="button" disabled={testBusy||!settings.smsEnabled||settings.smsProvider!=='faraz'||!settings[testPattern].code} onClick={async()=>{
-        if(testLock.current)return;testLock.current=true;setTestBusy(true);setTestResult(undefined);
-        try {
-          const response=await fetch('/api/settings/sms-test',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({requestId:crypto.randomUUID(),recipient,pattern:testPattern,values:testValues})});
-          setTestResult(await response.json());
-        } catch {setTestResult({status:'unknown',reason:'ارتباط قطع شد؛ پیش از تلاش جدید پنل فراز را بررسی کنید.'});}
-        finally {testLock.current=false;setTestBusy(false);}
-      }}>{testBusy?'در حال ارسال…':'ارسال پیامک آزمایشی'}</button>
-      {testResult&&<p role="status">{testResult.status==='accepted'?'پذیرفته شد — شناسه پیام: '+testResult.messageId:testResult.status==='rejected'?'رد شد — '+testResult.reason:'نامشخص — '+testResult.reason}</p>}
-    </section>}
-    <section className="panel"><h2>قاعده ارسال پیامک</h2><p>برای رکورد جدید دارای موعد، یک پیام هنگام ثبت و یک پیام نزدیک موعد ارسال می‌شود.</p><ul><li>بیش از ۲۴ ساعت تا موعد: پیام دوم ۲۴ ساعت قبل.</li><li>از بیش از ۳ تا ۲۴ ساعت: پیام دوم ۳ ساعت قبل.</li><li>۳ ساعت یا کمتر: پیام دوم در خود موعد.</li></ul><p className="muted">زمان‌ها به وقت تهران هستند. ساعت خالی، ساعت ثبت را مبنای تاریخ موعد قرار می‌دهد. مراجعه بدون موعد بعدی فقط پیام ثبت دارد. این قاعده برای رکوردهای جدید است؛ پیام‌های قبلی دوباره زمان‌بندی نمی‌شوند. ارسال دوم نیازمند زمان‌بند فعال سرور است. ذخیره این تنظیمات پیامک ارسال نمی‌کند.</p></section>
-    <div className="form-actions"><button disabled={busy} className="primary">{busy?'در حال ذخیره…':'ذخیره تنظیمات'}</button>{saved&&<p role="status" className="accent">تنظیمات ذخیره شد.</p>}</div></fieldset>
-  </form></>;
+  const {settings,keys,saveSettings,busy,error}=useClinic();
+  const router=useRouter();
+  const [form,setForm]=useState<ClinicSettings>(settings),[baseline,setBaseline]=useState(settings);
+  const [apiKey,setApiKey]=useState(''),[saved,setSaved]=useState(false),[saving,setSaving]=useState(false),[syncAfterSave,setSyncAfterSave]=useState(false);
+  const [section,setSection]=useState<Section>('profile'),[pattern,setPattern]=useState<PatternKey>('registrationPattern');
+  const [attempted,setAttempted]=useState(false),[validation,setValidation]=useState('');
+  const [leaving,setLeaving]=useState<string|null>(null),[discard,setDiscard]=useState(false);
+  const dirty=JSON.stringify(form)!==JSON.stringify(baseline)||Boolean(apiKey);
+  const remoteChanged=JSON.stringify(settings)!==JSON.stringify(baseline);
+  // One complete draft preserves the existing whole-object save contract. Never silently
+  // overwrite dirty edits with a new context snapshot. Normalize only after confirmed save.
+  if(syncAfterSave||(!dirty&&remoteChanged)) {
+    setForm(settings);setBaseline(settings);if(syncAfterSave)setSyncAfterSave(false);
+  }
+  useEffect(()=>{
+    if(!dirty)return;
+    const unload=(event:BeforeUnloadEvent)=>{event.preventDefault();};
+    const navigate=(event:MouseEvent)=>{
+      if(event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
+      const anchor=event.target instanceof Element?event.target.closest<HTMLAnchorElement>('a[href]'):null;
+      if(!anchor||anchor.target==='_blank'||anchor.hasAttribute('download'))return;
+      const url=new URL(anchor.href,location.href);
+      if(url.origin!==location.origin||url.pathname===location.pathname)return;
+      event.preventDefault();event.stopPropagation();setLeaving(url.pathname+url.search+url.hash);
+    };
+    window.addEventListener('beforeunload',unload);document.addEventListener('click',navigate,true);
+    return ()=>{window.removeEventListener('beforeunload',unload);document.removeEventListener('click',navigate,true);};
+  },[dirty]);
+  const update=(patch:Partial<ClinicSettings>)=>{setForm(current=>({...current,...patch}));setSaved(false);setValidation('');};
+  const current=sections.find(item=>item.id===section)!;const Icon=current.icon;
+  async function submit(event:React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();if(remoteChanged||busy)return;
+    setAttempted(true);setSaved(false);setValidation('');
+    const parsed=clinicSettingsSchema.safeParse(form);
+    if(!parsed.success) {
+      const issue=parsed.error.issues[0],field=String(issue.path[0]??'');
+      let target:Section=field==='customSpecies'?'animals':field==='clinicName'||field==='clinicPhone'?'profile':field.endsWith('Pattern')?'templates':'provider';
+      if(form.smsEnabled&&(!form.vaccinePattern.code||!form.taskPattern.code)){target='templates';setPattern(!form.vaccinePattern.code?'vaccinePattern':'taskPattern');}
+      else if(patternKeys.includes(field as PatternKey))setPattern(field as PatternKey);
+      setSection(target);setValidation(/^[آ-ی]/.test(issue.message)?issue.message:'اطلاعات این بخش معتبر نیست؛ نام پارامترها و مقادیر را بررسی کنید.');
+      window.setTimeout(()=>document.querySelector<HTMLElement>(`[data-settings-section="${target}"] [aria-invalid="true"], [data-settings-section="${target}"] input`)?.focus(),0);return;
+    }
+    setSaving(true);
+    try {if(await saveSettings(form,apiKey)){setApiKey('');setSaved(true);setAttempted(false);setSyncAfterSave(true);}}
+    finally {setSaving(false);}
+  }
+  return <div className="settings-page"><PageHeader eyebrow="مدیریت فضای کاری" title="تنظیمات کلینیک" description="هر بخش، یک جای مشخص؛ تغییرات همه دسته‌ها با هم ذخیره می‌شوند." action={<StatusBadge><ShieldCheck size={13}/> تنظیمات کلینیک</StatusBadge>}/>
+    <form className="settings-form" onSubmit={submit} noValidate>
+      {remoteChanged&&dirty&&<div className="inline-notice notice-warning" role="alert"><Info size={18}/><div><p>تنظیمات ذخیره‌شده تغییر کرده است. برای جلوگیری از بازنویسی نسخه جدید، ابتدا آن را بارگذاری کنید.</p><button type="button" onClick={()=>setDiscard(true)}>بارگذاری تنظیمات جدید</button></div></div>}
+      <div className="settings-layout"><aside className="settings-navigation"><p className="settings-nav-caption">دسته‌های تنظیمات</p><SectionNavigation items={sections} value={section} onChange={setSection} label="دسته‌بندی تنظیمات"/><div className="settings-navigation-note"><ShieldCheck size={16}/><p>سرویس و قالب‌های پیامک، تنظیمات مدیریتی‌اند. این دسته‌بندی سطح دسترسی جدیدی ایجاد نمی‌کند.</p></div></aside>
+      <div className="settings-content"><div className="settings-section-heading"><span className="section-icon"><Icon size={21}/></span><div><h2>{current.title}</h2><p>{current.detail}</p></div><StatusBadge>{current.scope}</StatusBadge></div>
+        {(validation||(attempted&&!saving&&error))&&<p className="error" role="alert">{validation||error}</p>}
+        <fieldset disabled={busy}>
+          <div data-settings-section="profile" hidden={section!=='profile'}><FormSection title="هویت کلینیک" description="این اطلاعات در فضای کاری و پیامک‌های شما استفاده می‌شوند."><div className="form-grid"><label>نام کلینیک<input value={form.clinicName} onChange={event=>update({clinicName:event.target.value})} maxLength={100} autoComplete="organization" aria-invalid={attempted&&form.clinicName.trim().length<2}/></label><label>شماره تماس کلینیک<input type="tel" dir="ltr" maxLength={20} value={form.clinicPhone} onChange={event=>update({clinicPhone:event.target.value})} autoComplete="tel"/></label></div><div className="inline-notice"><Info size={17}/><p>زمان محلی کلینیک: تهران · تاریخ‌های نمایشی: شمسی. قالب ذخیره‌سازی تاریخ تغییر نمی‌کند.</p></div></FormSection></div>
+          <div data-settings-section="animals" hidden={section!=='animals'}><AnimalTypes form={form} update={update}/></div>
+          <div data-settings-section="provider" hidden={section!=='provider'}><SMSProviderSettings form={form} savedSettings={settings} keys={keys} apiKey={apiKey} setApiKey={value=>{setApiKey(value);setSaved(false);}} update={update} dirty={dirty}/></div>
+          <div data-settings-section="templates" hidden={section!=='templates'}><SMSTemplateEditor form={form} update={update} selected={pattern} onSelect={setPattern} showErrors={attempted}/></div>
+          <div data-settings-section="schedule" hidden={section!=='schedule'}><ReminderPolicy/></div>
+        </fieldset>
+        <div className="settings-help"><Info size={16}/><p>تغییر دسته، ویرایش‌های شما را نگه می‌دارد. «ذخیره همه تغییرات» کل پیش‌نویس را ذخیره می‌کند و پیامکی ارسال نمی‌کند.</p></div>
+      </div></div>
+      <div className="settings-savebar"><div className="save-status" role="status">{saved&&!dirty?<Check size={18}/>:<span className={'save-indicator'+(dirty?' is-dirty':'')}/>}<span><strong>{saving?'در حال ذخیره تنظیمات':saved&&!dirty?'تنظیمات ذخیره شد':dirty?'تغییرات ذخیره‌نشده دارید':'تنظیمات به‌روز است'}</strong><small>{dirty?'ویرایش‌های تمام دسته‌ها با هم ذخیره می‌شوند.':'برای ویرایش، یک دسته را انتخاب کنید.'}</small></span></div><button className="primary" type="submit" disabled={busy||!dirty||remoteChanged}><Save size={17}/><SavingLabel busy={saving} label="ذخیره همه تغییرات"/></button></div>
+    </form>
+    {leaving&&<ConfirmationDialog title="خروج بدون ذخیره؟" description="تغییرات تنظیمات هنوز ذخیره نشده‌اند. با خروج از صفحه، این پیش‌نویس از دست می‌رود." confirmLabel="خروج بدون ذخیره" onCancel={()=>setLeaving(null)} onConfirm={()=>{const destination=leaving;setLeaving(null);router.push(destination);}}/>}
+    {discard&&<ConfirmationDialog title="بارگذاری نسخه جدید؟" description="ویرایش‌های ذخیره‌نشده و کلید جدید واردشده کنار گذاشته می‌شوند و تنظیمات ذخیره‌شده بارگذاری می‌شود." confirmLabel="بارگذاری نسخه جدید" onCancel={()=>setDiscard(false)} onConfirm={()=>{setForm(settings);setBaseline(settings);setApiKey('');setValidation('');setAttempted(false);setSaved(false);setDiscard(false);}}/>}
+  </div>;
+}
+function AnimalTypes({form,update}:{form:ClinicSettings;update:(patch:Partial<ClinicSettings>)=>void}) {
+  const [name,setName]=useState(''),[error,setError]=useState(''),[remove,setRemove]=useState<string|null>(null);
+  function add(){const value=name.trim();if(!value||form.customSpecies.includes(value)||['سگ','گربه','پرنده','سایر'].includes(value)){setError('نام جدید و غیرتکراری وارد کنید.');return;}if(form.customSpecies.length>=100){setError('حداکثر ۱۰۰ نوع دلخواه مجاز است.');return;}update({customSpecies:[...form.customSpecies,value]});setName('');setError('');}
+  return <FormSection title="گزینه‌های ثبت بیمار" description="نوع‌های دلخواه را به فهرست موجود اضافه کنید؛ سوابق بیماران تغییر نمی‌کنند."><div className="built-in-species">{['سگ','گربه','پرنده','سایر'].map(item=><StatusBadge key={item}>{item}</StatusBadge>)}</div><div className="species-editor"><label>نوع حیوان جدید<input maxLength={60} value={name} onChange={event=>{setName(event.target.value);setError('');}} onKeyDown={event=>{if(event.key==='Enter'){event.preventDefault();add();}}} placeholder="مثلاً خرگوش"/></label><button type="button" onClick={add}><Plus size={17}/>افزودن به فهرست</button></div>{error&&<p role="alert" className="error">{error}</p>}<ul className="species-options">{form.customSpecies.map(item=><li key={item}>{item}<button type="button" aria-label={'حذف '+item+' از گزینه‌ها'} onClick={()=>setRemove(item)}><Trash2 size={15}/></button></li>)}</ul>{!form.customSpecies.length&&<p className="form-hint">هنوز نوع دلخواهی اضافه نشده است.</p>}<p className="form-hint">حذف گزینه، نوع حیوان را در پرونده‌های قبلی تغییر نمی‌دهد. برای اعمال تغییرات، دکمه ذخیره را بزنید.</p>{remove&&<ConfirmationDialog title="حذف از گزینه‌ها؟" description={`«${remove}» از گزینه‌های ثبت بیمار حذف می‌شود؛ سوابق قبلی حفظ می‌شوند.`} confirmLabel="حذف از پیش‌نویس" danger onCancel={()=>setRemove(null)} onConfirm={()=>{update({customSpecies:form.customSpecies.filter(item=>item!==remove)});setRemove(null);}}/>}</FormSection>;
+}
+function ReminderPolicy() {
+  return <FormSection title="قاعده فعلی ارسال" description="این قاعده در سرور ثابت است؛ کنترل زمان‌بندی جدیدی به تنظیمات اضافه نشده است." action={<StatusBadge>فقط خواندنی</StatusBadge>}><div className="policy-grid"><div className="policy-step"><span>۱</span><div><strong>پیام اول، هنگام ثبت</strong><p>پس از ذخیره موفق رکورد جدید، با فعال بودن پیامک.</p></div></div><div className="policy-step"><span>۲</span><div><strong>پیام دوم، نزدیک موعد</strong><p>بیش از ۲۴ ساعت تا موعد: ۲۴ ساعت قبل. بیش از ۳ تا ۲۴ ساعت: ۳ ساعت قبل. ۳ ساعت یا کمتر: در خود موعد.</p></div></div></div><div className="inline-notice"><Info size={17}/><p>همه زمان‌ها به وقت تهران‌اند. ساعت خالی، ساعت ثبت را مبنای تاریخ موعد قرار می‌دهد. مراجعه بدون موعد بعدی فقط پیام ثبت دارد. پیام‌های قبلی دوباره زمان‌بندی نمی‌شوند.</p></div><p className="form-hint">ارسال دوم نیازمند اجرای زمان‌بند سرور است. تأخیر اجرا یا پاسخ نامشخص به‌معنی تحویل نیست. غیرفعال‌کردن پیامک، ارسال‌های بعدی را متوقف می‌کند.</p></FormSection>;
 }
