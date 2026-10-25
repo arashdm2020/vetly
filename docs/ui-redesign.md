@@ -2,7 +2,7 @@
 
 ## Scope and review
 
-This branch changes presentation and client interaction only. It does not modify the database schema/migrations, auth or session implementation, server actions, API routes, provider adapters, SMS mappings on the server, dispatch/scheduling, or settings persistence. It must be reviewed on `feature/ui-redesign`; do not merge or deploy production until review is complete.
+The initial redesign changed presentation and client interaction only. A subsequent explicitly requested feature adds authenticated phone editing and a registration SMS after a successful phone change; see `docs/patient-phone-edit.md`. The database schema/migrations, auth/session implementation, provider adapters and reminder scheduling remain unchanged. It must be reviewed on `feature/ui-redesign`; do not merge or deploy production until review is complete.
 
 The previous settings screen stacked unrelated controls into a single long form. The new screen provides five explicit categories: clinic identity, animal types, SMS service and manual test, approved pattern templates, and read-only reminder policy. General and administrative descriptions explain the controls without inventing new permissions. The desktop shell has an edge-aligned RTL sidebar; mobile retains five primary bottom navigation links. Dashboard, patient history and care cards use the same spacing, colors, labels and Lucide icon system. Appointment scheduling remains explicitly unavailable.
 

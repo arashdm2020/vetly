@@ -96,4 +96,22 @@ test('unsubmitted animal text survives section switches and invalid data does no
   context={...context,saveSettings:async()=>{calls++;return true;}};await render();await submit();assert.equal(calls,0);assert.ok(document.querySelector('[role="alert"]'));
 });
 
+test('phone editor confirms before saving, preserves failed input and shows provider result',async()=>{
+  const {PatientPhoneEditor}=await import('../src/components/patient-phone-editor.tsx');
+  await act(async()=>root.render(null));
+  const patient={id:'11111111-1111-4111-8111-111111111111',name:'میلو',phone:'09121111111',owner:'صاحب نمونه',species:'cat'};
+  const calls=[];let response=null;
+  context={busy:false,editPhone:async input=>{calls.push(input);return response;}};
+  await act(async()=>root.render(React.createElement(UIContext.Provider,{value:context},React.createElement(PatientPhoneEditor,{patient}))));
+  await click(button('ویرایش شماره'));assert.equal(button('ذخیره شماره و ارسال پیامک').disabled,true);
+  await type(input('شماره موبایل جدید'),'123');await submit();assert.equal(calls.length,0);assert.ok(document.querySelector('[role="alert"]'));
+  await type(input('شماره موبایل جدید'),'۰۹۱۲۲۲۲۲۲۲۲');await submit();assert.equal(calls.length,0);
+  await click(button('انصراف'));assert.equal(calls.length,0);
+  await submit();await click(button('تأیید تغییر و ارسال'));assert.equal(calls.length,1);assert.equal(calls[0].phone,'09122222222');
+  assert.equal(input('شماره موبایل جدید').value,'۰۹۱۲۲۲۲۲۲۲۲');
+  response={changed:true,sms:{status:'accepted',messageId:'12345'}};
+  await submit();await click(button('تأیید تغییر و ارسال'));assert.equal(calls[0].requestId,calls[1].requestId);
+  assert.ok(document.querySelector('[role="status"]').textContent.includes('12345'));
+});
+
 test.after(async()=>{await act(async()=>root.unmount());dom.window.close();});

@@ -427,3 +427,77 @@ test('worker dry run authenticates without touching the SMS queue',async()=>{
     assert.deepEqual(await db.select({count:sql`count(*)`}).from(smsDeliveries),before);
   } finally {if(previous===undefined)delete process.env.CRON_SECRET;else process.env.CRON_SECRET=previous;}
 });
+
+test('phone edits persist once, normalize, reject stale/invalid input and send only to the new number',async()=>{
+  const {changePatientPhone}=await import('../src/features/patients/change-phone.ts');
+  await saveClinicSettings({...structuredClone(defaultSettings),smsEnabled:false},'');
+  const patient=await createPatient({name:'تغییر شماره',species:'cat',owner:'صاحب آزمون',phone:'09121111111'});
+  const [pet]=await db.select().from(pets).where(eq(pets.id,patient.id));
+  const sibling=crypto.randomUUID();await db.insert(pets).values({id:sibling,ownerId:pet.ownerId,name:'بیمار دوم',species:'cat'});
+  const config={...structuredClone(defaultSettings),smsEnabled:true,smsProvider:'faraz',clinicPhone:'02112345678'};
+  for(const key of ['registrationPattern','vaccinePattern','taskPattern'])config[key].code='ApprovedPhone';
+  await saveClinicSettings(config,'test-phone-key');
+  const originalFetch=globalThis.fetch,calls=[];
+  globalThis.fetch=async(url,options)=>{calls.push(JSON.parse(options.body));return new Response(JSON.stringify({status:'success',data:55501}),{status:200});};
+  try {
+    const input={petId:patient.id,requestId:crypto.randomUUID(),expectedPhone:patient.phone,phone:'+989122222222'};
+    const settled=await Promise.allSettled([changePatientPhone(input),changePatientPhone(input)]);
+    const results=settled.filter(r=>r.status==='fulfilled').map(r=>r.value);
+    assert.equal(results.length,2);
+    assert.equal(calls.length,1);assert.equal(calls[0].recipient,'09122222222');assert.equal(calls[0].code,config.registrationPattern.code);
+    assert.ok(results.every(r=>r.changed));assert.ok(results.some(r=>r.sms.status==='accepted'));
+    assert.equal((await db.select().from(owners).where(eq(owners.id,pet.ownerId)))[0].phone,'09122222222');
+    assert.equal((await clinicSnapshot()).patients.find(p=>p.id===sibling).phone,'09122222222');
+    const replay=await changePatientPhone(input);assert.equal(replay.sms.status,'accepted');assert.equal(calls.length,1);
+    const unchanged=await changePatientPhone({...input,requestId:crypto.randomUUID(),expectedPhone:'09122222222',phone:'۰۹۱۲۲۲۲۲۲۲۲'});
+    assert.deepEqual(unchanged,{changed:false,sms:null});assert.equal(calls.length,1);
+    await assert.rejects(changePatientPhone({...input,requestId:crypto.randomUUID(),phone:'09123333333'}),/شماره پرونده تغییر کرده/);
+    await assert.rejects(changePatientPhone({...input,phone:'123'}));
+    await assert.rejects(changePatientPhone({...input,petId:crypto.randomUUID()}),/بیمار پیدا نشد/);
+    assert.equal(calls.length,1);
+    assert.equal((await db.select().from(reminders).where(eq(reminders.petId,patient.id))).length,0);
+  }finally{globalThis.fetch=originalFetch;}
+});
+
+test('phone changes survive rejected/unknown/disabled SMS and never resend the same operation',async()=>{
+  const {changePatientPhone}=await import('../src/features/patients/change-phone.ts');
+  await saveClinicSettings({...structuredClone(defaultSettings),smsEnabled:false},'');
+  const patient=await createPatient({name:'خطای پیامک',species:'dog',owner:'صاحب آزمون',phone:'09124444444'});
+  const config={...structuredClone(defaultSettings),smsEnabled:true,smsProvider:'faraz'};
+  for(const key of ['registrationPattern','vaccinePattern','taskPattern'])config[key].code='ApprovedPhone';
+  await saveClinicSettings(config,'test-phone-key');
+  const originalFetch=globalThis.fetch;let calls=0;
+  try {
+    globalThis.fetch=async()=>{calls++;return new Response(JSON.stringify({status:'error'}),{status:422});};
+    const rejected={petId:patient.id,requestId:crypto.randomUUID(),expectedPhone:patient.phone,phone:'09125555555'};
+    assert.equal((await changePatientPhone(rejected)).sms.status,'rejected');
+    await changePatientPhone(rejected);assert.equal(calls,1);
+    globalThis.fetch=async()=>{calls++;throw new DOMException('timeout','TimeoutError');};
+    const timedout={...rejected,requestId:crypto.randomUUID(),expectedPhone:'09125555555',phone:'09126666666'};
+    assert.equal((await changePatientPhone(timedout)).sms.status,'unknown');await changePatientPhone(timedout);assert.equal(calls,2);
+    await saveClinicSettings({...config,smsEnabled:false},'');
+    const disabled={...timedout,requestId:crypto.randomUUID(),expectedPhone:'09126666666',phone:'09127777777'};
+    assert.equal((await changePatientPhone(disabled)).sms.status,'rejected');assert.equal(calls,2);
+    assert.equal((await clinicSnapshot()).patients.find(p=>p.id===patient.id).phone,'09127777777');
+  }finally{globalThis.fetch=originalFetch;}
+});
+
+test('phone edit server action denies unauthenticated access before mutation or SMS',async()=>{
+  const {editPatientPhone}=await import('../src/features/clinic/actions.ts');
+  const before=await db.select().from(owners);const beforeClaims=await db.select().from(smsDeliveries);
+  const response=await editPatientPhone({petId:crypto.randomUUID(),requestId:crypto.randomUUID(),expectedPhone:'09121111111',phone:'09122222222'});
+  assert.equal(response.ok,false);assert.deepEqual(await db.select().from(owners),before);assert.deepEqual(await db.select().from(smsDeliveries),beforeClaims);
+});
+
+test('phone update failure rolls back the delivery claim and never sends',async()=>{
+  const {changePatientPhone}=await import('../src/features/patients/change-phone.ts');
+  await saveClinicSettings({...structuredClone(defaultSettings),smsEnabled:false},'');
+  const patient=await createPatient({name:'تراکنش',species:'cat',owner:'صاحب آزمون',phone:'09128888888'});
+  const before=(await db.select().from(smsDeliveries)).length;
+  await db.$client.execute("CREATE TRIGGER fail_phone_edit BEFORE UPDATE OF phone ON owners WHEN NEW.phone='09129999999' BEGIN SELECT RAISE(ABORT,'test rollback'); END");
+  try {
+    await assert.rejects(changePatientPhone({petId:patient.id,requestId:crypto.randomUUID(),expectedPhone:patient.phone,phone:'09129999999'}));
+    assert.equal((await db.select().from(smsDeliveries)).length,before);
+    assert.equal((await clinicSnapshot()).patients.find(p=>p.id===patient.id).phone,patient.phone);
+  }finally{await db.$client.execute('DROP TRIGGER fail_phone_edit');}
+});
