@@ -1,0 +1,41 @@
+name: Process clinic reminders
+on:
+  schedule:
+    - cron: '*/5 * * * *'
+  workflow_dispatch:
+permissions: {}
+concurrency:
+  group: clinic-reminder-worker
+  cancel-in-progress: false
+jobs:
+  process:
+    # Explicit rollout gate: migrate and deploy before enabling this repository variable.
+    if: vars.REMINDER_WORKER_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 7
+    steps:
+      - name: Invoke authenticated worker (no SMS on build or push)
+        env:
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+          WORKER_URL: https://vetly-kappa.vercel.app/api/internal/reminders/process
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [ "${#CRON_SECRET}" -lt 32 ]; then
+            echo '::error::Set repository Actions secret CRON_SECRET to the existing Vercel CRON_SECRET before enabling reminder processing.'
+            exit 1
+          fi
+          # Small batches keep each serverless invocation bounded. Never retry a failed HTTP request.
+          # The worker's durable claims prevent resending an uncertain provider operation.
+          for batch in {1..5}; do
+            response_file=$(mktemp)
+            header_file=$(mktemp)
+            trap 'rm -f "$response_file" "$header_file"' EXIT
+            chmod 600 "$header_file"
+            printf 'Authorization: Bearer %s\n' "$CRON_SECRET" > "$header_file"
+            curl --silent --show-error --fail --proto '=https' --max-time 70 \
+              --header "@$header_file" "$WORKER_URL" --output "$response_file"
+            processed=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["processed"])' "$response_file")
+            rm -f "$response_file" "$header_file"
+            if [ "$processed" -lt 5 ]; then break; fi
+          done

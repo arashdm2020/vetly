@@ -4,6 +4,7 @@ import { getDatabase } from '@/db';
 import { reminders, smsDeliveries, pets, owners, vaccinations } from '@/db/schema';
 import { readClinicSettings, readSmsKey } from '@/features/settings/service';
 import { smsProvider } from '@/features/sms/providers';
+import { eventDateTime } from './schedule';
 import { formatDate } from '@/lib/clinic';
 
 // One worker batch, bounded for serverless execution. Provider acceptance is not handset delivery.
@@ -22,6 +23,11 @@ export async function processDueReminders() {
       .where(and(eq(reminders.id,reminder.id),eq(reminders.status,'pending'),isNull(reminders.completedAt))).returning({id:reminders.id});
     if(!claimed)continue;
     counts.processed++;
+    // New schedules have an event deadline. Do not send stale messages after a long outage.
+    if(reminder.dueAt && Date.now()>reminder.dueAt+10*60000) {
+      await database.update(reminders).set({status:'cancelled',lastError:'موعد گذشته است؛ پیامک دیرهنگام ارسال نشد.',updatedAt:Date.now()}).where(eq(reminders.id,reminder.id));
+      continue;
+    }
     try {
       const [patient]=await database.select({name:pets.name,phone:owners.phone}).from(pets).innerJoin(owners,eq(pets.ownerId,owners.id)).where(eq(pets.id,reminder.petId)).limit(1);
       if(!patient)throw new Error('Missing patient');
@@ -34,7 +40,7 @@ export async function processDueReminders() {
       const deliveryId=crypto.randomUUID();
       await database.insert(smsDeliveries).values({id:deliveryId,reminderId:reminder.id,idempotencyKey:reminder.id,provider:config.smsProvider});
       const result=await provider.send({to:patient.phone,sender:config.farazSender,pattern:reminder.type==='vaccination'?config.vaccinePattern:config.taskPattern,
-        values:{pet:patient.name,date:formatDate(dueDate),clinic:config.clinicName,phone:config.clinicPhone,action:reminder.title}});
+        values:{pet:patient.name,date:reminder.dueAt?eventDateTime(reminder.dueAt):formatDate(dueDate),clinic:config.clinicName,phone:config.clinicPhone,action:reminder.title}});
       const accepted=result.status==='accepted';
       const lastError=accepted?null:result.reason;
       await database.batch([

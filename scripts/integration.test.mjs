@@ -9,13 +9,15 @@ import { migrate } from 'drizzle-orm/libsql/migrator';
 import { getDatabase } from '../src/db/index.ts';
 import { owners, pets, visits, vaccinations, reminders, appointments, settings } from '../src/db/schema.ts';
 import { createPatient } from '../src/features/patients/service.ts';
-import { createRecord, clinicSnapshot, scheduledTime } from '../src/features/clinic/service.ts';
+import { createRecord, clinicSnapshot } from '../src/features/clinic/service.ts';
 import { saveClinicSettings, readClinicSettings, readSmsKey } from '../src/features/settings/service.ts';
 import { defaultSettings, clinicSettingsSchema, renderTemplate } from '../src/features/settings/schema.ts';
 import { smsProvider } from '../src/features/sms/providers.ts';
 import { sendRegistrationSms } from '../src/features/sms/registration.ts';
 import { smsDeliveries } from '../src/db/schema.ts';
 import { processDueReminders } from '../src/features/reminders/process.ts';
+import { resolveDueAt, secondNotificationAt, eventDate, clinicClock } from '../src/features/reminders/schedule.ts';
+import { sendRecordCreatedSms } from '../src/features/sms/record-created.ts';
 import { todayISO } from '../src/lib/clinic.ts';
 import { encryptSecret, decryptSecret } from '../src/lib/secrets.ts';
 import { authConfigured, localDevelopment } from '../src/lib/auth.ts';
@@ -25,6 +27,8 @@ process.env.TURSO_DATABASE_URL='file:'+join(folder,'test.db').replaceAll('\\','/
 process.env.NODE_ENV='test';
 // Test-only values are confined to the test process and temporary database.
 process.env.SETTINGS_ENCRYPTION_KEY='a'.repeat(64);
+// Fail closed: no automated test may reach an SMS provider. Individual tests inject mocks.
+globalThis.fetch=async()=>{throw new Error('Real network disabled in integration tests');};
 let db;
 before(async()=>{db=getDatabase();await migrate(db,{migrationsFolder:'./drizzle'});});
 // Keep disposable fixtures for inspection; Windows may retain native SQLite handles until process exit.
@@ -180,15 +184,16 @@ test('concurrent workers claim one reminder once; uncertain send is never retrie
     assert.equal((await db.select().from(reminders).where(eq(reminders.id,unknownId)))[0].status,'failed');
   } finally {globalThis.fetch=original;}
 });
-test('disabled sending creates no network traffic and future vaccines have scheduled offsets',async()=>{
+test('disabled sending creates no network traffic and a single cancelled future notification',async()=>{
   await saveClinicSettings({...defaultSettings,smsEnabled:false},'');
   const [pet]=await db.select().from(pets);
   const nextDate=new Date(Date.now()+30*86400000).toISOString().slice(0,10);
   const id=crypto.randomUUID();
   await createRecord({id,petId:pet.id,kind:'vaccine',title:'واکسن آزمون',date:todayISO(),nextDate,notes:'',diagnosis:'',treatment:'',medications:'',completed:false});
   const scheduled=await db.select().from(reminders).where(eq(reminders.vaccinationId,id));
-  assert.equal(scheduled.length,2);
-  assert.deepEqual(scheduled.map(r=>r.scheduledAt).sort(),[scheduledTime(nextDate,1),scheduledTime(nextDate,7)].sort());
+  assert.equal(scheduled.length,1);
+  assert.equal(scheduled[0].scheduledAt,scheduled[0].dueAt-86400000);
+  assert.equal(eventDate(scheduled[0].dueAt),nextDate);
   assert(scheduled.every(r=>r.status==='cancelled'));
   assert.equal((await processDueReminders()).disabled,true);
   assert.equal((await db.select().from(vaccinations).where(eq(vaccinations.id,id)))[0].reminderEnabled,false);
@@ -213,6 +218,11 @@ test('additive migrations preserve existing patients and medical references',asy
     assert.equal(patient.notes,'Keep');
     assert.equal(patient.custom_species,null);
     assert.equal((await client.execute('SELECT pet_id FROM visits')).rows[0].pet_id,'pet');
+    await client.execute("INSERT INTO reminders(id,pet_id,type,title,scheduled_at,status,created_at,updated_at) VALUES('legacy-reminder','pet','task','Keep',1,'pending',1,1)");
+    await client.batch(statements('./drizzle/0003_white_gauntlet.sql'),'write');
+    await client.batch(statements('./drizzle/0004_foamy_kingpin.sql'),'write');
+    const legacy=(await client.execute("SELECT * FROM reminders WHERE id='legacy-reminder'")).rows[0];
+    assert.equal(legacy.status,'pending');assert.equal(legacy.scheduled_at,1);assert.equal(legacy.due_at,null);assert.equal(legacy.visit_id,null);
     assert.equal((await client.execute('PRAGMA foreign_key_check')).rows.length,0);
     await assert.rejects(client.execute("UPDATE pets SET weight_grams=-1 WHERE id='pet'"));
   } finally { client.close(); }
@@ -275,4 +285,110 @@ test('Faraz shared line is explicit for blank/absent sender and dedicated sender
     }).send({...input,sender});
     assert.deepEqual(result,{status:'accepted',messageId:'123'});assert.equal(calls,1);
   }
+});
+
+
+test('two-stage timing boundaries: >24h, exactly24h, >3h, exactly3h and imminent',()=>{
+  const now=Date.parse('2026-10-25T14:00:00+03:30'),hour=3600000;
+  for(const [remaining,lead] of [[72,24],[24.001,24],[24,3],[12,3],[3.001,3],[3,0],[1,0]])
+    assert.equal(secondNotificationAt(now+remaining*hour,now),now+(remaining-lead)*hour);
+  assert.throws(()=>secondNotificationAt(now,now));
+  assert.throws(()=>secondNotificationAt(now-hour,now));
+  const tomorrow=resolveDueAt('2026-10-26','',now);
+  assert.equal(clinicClock(tomorrow),'14:00:00');
+  assert.equal(secondNotificationAt(tomorrow,now),Date.parse('2026-10-26T11:00:00+03:30'));
+  assert.equal(clinicClock(resolveDueAt('2026-10-26','16:45',now)),'16:45:00');
+  assert.equal(clinicClock(Date.parse('2026-10-25T23:50:00+03:30')),'23:50:00');
+});
+
+test('each new record sends once on creation, then one independent claimed scheduled send',async()=>{
+  const [pet]=await db.select().from(pets);
+  const config=structuredClone(defaultSettings);config.smsEnabled=true;config.smsProvider='faraz';
+  config.vaccinePattern.code='approved-vaccine';config.taskPattern.code='approved-task';
+  config.vaccinePattern.parameters=['clinic','pet','date','phone'].map(name=>({name,variable:name}));
+  config.taskPattern.parameters=['clinic','action','pet','date','phone'].map(name=>({name,variable:name}));
+  await saveClinicSettings(config,'FAKE-ONLY');
+  const original=globalThis.fetch;let sends=0;const sent=[];
+  globalThis.fetch=async(url,options)=>{sends++;sent.push(JSON.parse(options.body));return Response.json({status:'success',data:100+sends},{status:201});};
+  const ids=[];
+  try {
+    // Existing unrelated legacy pending rows must not participate in this scenario.
+    await db.update(reminders).set({status:'cancelled'}).where(eq(reminders.status,'pending'));
+    const date=eventDate(Date.now()+3*86400000);
+    for(const kind of ['vaccine','reminder','visit']) {
+      const id=crypto.randomUUID();ids.push(id);
+      const record={id,petId:pet.id,kind,title:kind==='visit'?'ویزیت مجدد':'آزمون برنامه',date:kind==='reminder'?date:todayISO(),nextDate:kind==='reminder'?'':date,dueTime:'14:30',notes:'',diagnosis:'',treatment:'',medications:'',completed:false};
+      await createRecord(record);
+      const [delivery]=await db.select().from(smsDeliveries).where(eq(smsDeliveries.idempotencyKey,`record:${kind}:${id}:created`));
+      assert.equal(delivery.status,'sent');
+      const [scheduled]=await db.select().from(reminders).where(eq(reminders.id,delivery.reminderId));
+      assert.equal(scheduled.scheduledAt,scheduled.dueAt-86400000);
+      assert.equal(scheduled.status,'pending');
+      await sendRecordCreatedSms({id,petId:pet.id,kind,title:record.title,dueAt:scheduled.dueAt,reminderId:scheduled.id});
+      assert.equal(sends,ids.length); // replay cannot resend registration stage
+      await assert.rejects(createRecord(record));assert.equal(sends,ids.length);
+      await db.update(reminders).set({scheduledAt:Date.now()-1000}).where(eq(reminders.id,scheduled.id));
+    }
+    assert.equal(sends,3);assert.equal(sent[0].code,'approved-vaccine');
+    assert.equal(sent[1].code,'approved-task');assert.match(sent[1].attributes.date,/۱۴:۳۰/);
+    await Promise.all([processDueReminders(),processDueReminders()]);
+    assert.equal(sends,6);await processDueReminders();assert.equal(sends,6);
+    const snapshot=await clinicSnapshot();
+    const task=snapshot.records.find(row=>row.id===ids[1]);assert.equal(task.date,date);assert.equal(task.dueTime,'14:30');
+    assert.equal(task.notificationStatus,'sent');assert.equal(task.reminderStatus,'sent');
+    assert(snapshot.records.find(row=>row.id===ids[2]).nextDate===date);
+    assert.equal(snapshot.records.filter(row=>row.kind==='reminder'&&row.followupReminderId===snapshot.records.find(row=>row.id===ids[2]).followupReminderId).length,0);
+  } finally {globalThis.fetch=original;await saveClinicSettings(defaultSettings,'');}
+});
+
+test('initial SMS timeout does not roll back the record or retry; completed tasks suppress second send',async()=>{
+  const [pet]=await db.select().from(pets);
+  const config=structuredClone(defaultSettings);config.smsEnabled=true;config.smsProvider='faraz';config.vaccinePattern.code='vaccine';config.taskPattern.code='task';
+  await saveClinicSettings(config,'FAKE-ONLY');
+  const original=globalThis.fetch;let sends=0;globalThis.fetch=async()=>{sends++;throw new DOMException('timeout','TimeoutError');};
+  try {
+    const id=crypto.randomUUID(),date=eventDate(Date.now()+2*86400000);
+    await createRecord({id,petId:pet.id,kind:'reminder',title:'test',date,nextDate:'',dueTime:'15:00',notes:'',diagnosis:'',treatment:'',medications:'',completed:false});
+    assert.equal(sends,1);
+    const [row]=await db.select().from(reminders).where(eq(reminders.id,id));assert(row);
+    const [delivery]=await db.select().from(smsDeliveries).where(eq(smsDeliveries.idempotencyKey,`record:reminder:${id}:created`));
+    assert.equal(delivery.status,'unknown');
+    await sendRecordCreatedSms({id,petId:pet.id,kind:'reminder',title:'test',dueAt:row.dueAt,reminderId:id});assert.equal(sends,1);
+    await db.update(reminders).set({status:'cancelled',completedAt:Date.now(),scheduledAt:Date.now()-1000}).where(eq(reminders.id,id));
+    await processDueReminders();assert.equal(sends,1);
+    // Registration status must not be overwritten by a record notification.
+    const snapshot=await clinicSnapshot();
+    const registrations=await db.select().from(smsDeliveries).where(eq(smsDeliveries.idempotencyKey,`registration:${pet.id}`));
+    assert.equal(snapshot.patients.find(p=>p.id===pet.id).registrationSmsStatus,registrations[0]?.status);
+  } finally {globalThis.fetch=original;await saveClinicSettings(defaultSettings,'');}
+});
+
+
+test('past deadline is suppressed and an immediate-only visit never creates a second event',async()=>{
+  const [pet]=await db.select().from(pets);
+  const config=structuredClone(defaultSettings);config.smsEnabled=true;config.smsProvider='faraz';config.vaccinePattern.code='vaccine';config.taskPattern.code='task';
+  await saveClinicSettings(config,'FAKE-ONLY');
+  const original=globalThis.fetch;let sends=0;globalThis.fetch=async()=>{sends++;return Response.json({status:'success',data:88},{status:201});};
+  try {
+    const id=crypto.randomUUID();
+    await createRecord({id,petId:pet.id,kind:'visit',title:'معاینه عمومی',date:todayISO(),nextDate:'',notes:'',diagnosis:'',treatment:'',medications:'',completed:false});
+    assert.equal(sends,1);assert.equal((await db.select().from(reminders).where(eq(reminders.visitId,id))).length,0);
+    const late=crypto.randomUUID();
+    await db.insert(reminders).values({id:late,petId:pet.id,type:'task',title:'late',dueAt:Date.now()-3600000,scheduledAt:Date.now()-7200000});
+    await processDueReminders();assert.equal(sends,1);
+    assert.equal((await db.select().from(reminders).where(eq(reminders.id,late)))[0].status,'cancelled');
+  } finally {globalThis.fetch=original;await saveClinicSettings(defaultSettings,'');}
+});
+
+test('scheduled worker route enforces existing cron secret and never sends while disabled',async()=>{
+  const {GET}=await import('../src/app/api/internal/reminders/process/route.ts');
+  const previous=process.env.CRON_SECRET;process.env.CRON_SECRET='TEST-ONLY-CRON-SECRET-'.repeat(3);
+  try {
+    const url='https://vetly.example/api/internal/reminders/process';
+    assert.equal((await GET(new Request(url))).status,401);
+    assert.equal((await GET(new Request(url,{headers:{authorization:'Bearer wrong'}}))).status,401);
+    await saveClinicSettings(defaultSettings,'');
+    const response=await GET(new Request(url,{headers:{authorization:'Bearer '+process.env.CRON_SECRET}}));
+    assert.equal(response.status,200);assert.equal((await response.json()).disabled,true);
+  } finally {if(previous===undefined)delete process.env.CRON_SECRET;else process.env.CRON_SECRET=previous;}
 });

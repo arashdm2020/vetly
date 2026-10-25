@@ -29,6 +29,13 @@
       "when": 1790789351782,
       "tag": "0003_white_gauntlet",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "6",
+      "when": 1792918450271,
+      "tag": "0004_foamy_kingpin",
+      "breakpoints": true
     }
   ]
 }

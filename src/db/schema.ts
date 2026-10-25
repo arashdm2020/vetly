@@ -67,6 +67,8 @@ export const reminders = sqliteTable('reminders', {
   vaccinationId: text('vaccination_id'),
   type: text('type', { enum: ['vaccination', 'task'] }).notNull(), title: text('title').notNull(), notes: text('notes'),
   scheduledAt: integer('scheduled_at').notNull(),
+  dueAt: integer('due_at'),
+  visitId: text('visit_id').references(() => visits.id, { onDelete: 'restrict' }),
   status: text('status', { enum: ['pending', 'processing', 'sent', 'failed', 'cancelled'] }).notNull().default('pending'),
   attempts: integer('attempts').notNull().default(0), lastError: text('last_error'), sentAt: integer('sent_at'),
   completedAt: integer('completed_at'), ...timestamps(),
