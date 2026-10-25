@@ -23,7 +23,7 @@ export function Shell({children}:{children:React.ReactNode}) {
       <div className="sidebar-note"><div className="sidebar-care"><HeartPulse size={21}/><strong>فرصتی بیشتر برای مراقبت</strong></div><p>نظم در کارهای روزانه؛ تمرکز بیشتر روی سلامت حیوانات.</p></div>
       <div className="sidebar-account"><span className="admin-avatar">م</span><div><strong>مدیریت کلینیک</strong><small><ShieldCheck size={12}/> فضای کاری کلینیک</small></div></div>
     </aside>
-    <div className="workspace"><header className="topbar"><div className="workspace-breadcrumb"><span className="muted">فضای کاری</span><ChevronLeft size={14}/><strong>{current?.title||'پرونده بیمار'}</strong></div><div className="topbar-actions"><span className="topbar-clinic">{settings.clinicName}</span><span className="topbar-divider"/><button className="logout-button" onClick={()=>logout()}><LogOut size={17}/><span>خروج</span></button></div></header>
+    <div className="workspace"><header className="topbar"><div className="workspace-breadcrumb"><span className="muted">فضای کاری</span><ChevronLeft size={14}/><strong>{current?.title||'پرونده بیمار'}</strong></div><div className="topbar-actions"><span className="topbar-clinic">{settings.clinicName}</span><span className="topbar-divider"/><button className="logout-button" onClick={()=>{if(window.dispatchEvent(new Event('vetly:before-logout',{cancelable:true})))void logout();}}><LogOut size={17}/><span>خروج</span></button></div></header>
       {error&&<div role="alert" className="error">{error}</div>}<main id="main">{children}</main><footer>وتلی · فرصتی بیشتر برای مراقبت</footer>
     </div>
   </div>;

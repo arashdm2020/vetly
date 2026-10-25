@@ -1,5 +1,6 @@
 'use client';
 import { useEffect, useState } from 'react';
+import { logout } from '@/features/auth/actions';
 import { useRouter } from 'next/navigation';
 import { BellRing, Building2, Check, FileText, Info, MessageSquare, PawPrint, Plus, Save, ShieldCheck, Trash2 } from 'lucide-react';
 import { useClinic } from './clinic-provider';
@@ -44,8 +45,9 @@ export function SettingsForm() {
       if(url.origin!==location.origin||url.pathname===location.pathname)return;
       event.preventDefault();event.stopPropagation();setLeaving(url.pathname+url.search+url.hash);
     };
-    window.addEventListener('beforeunload',unload);document.addEventListener('click',navigate,true);
-    return ()=>{window.removeEventListener('beforeunload',unload);document.removeEventListener('click',navigate,true);};
+    const beforeLogout=(event:Event)=>{event.preventDefault();setLeaving('__logout__');};
+    window.addEventListener('vetly:before-logout',beforeLogout);window.addEventListener('beforeunload',unload);document.addEventListener('click',navigate,true);
+    return ()=>{window.removeEventListener('vetly:before-logout',beforeLogout);window.removeEventListener('beforeunload',unload);document.removeEventListener('click',navigate,true);};
   },[dirty]);
   const update=(patch:Partial<ClinicSettings>)=>{setForm(current=>({...current,...patch}));setSaved(false);setValidation('');};
   const current=sections.find(item=>item.id===section)!;const Icon=current.icon;
@@ -82,7 +84,7 @@ export function SettingsForm() {
       </div></div>
       <div className="settings-savebar"><div className="save-status" role="status">{saved&&!dirty?<Check size={18}/>:<span className={'save-indicator'+(dirty?' is-dirty':'')}/>}<span><strong>{saving?'در حال ذخیره تنظیمات':saved&&!dirty?'تنظیمات ذخیره شد':dirty?'تغییرات ذخیره‌نشده دارید':'تنظیمات به‌روز است'}</strong><small>{dirty?'ویرایش‌های تمام دسته‌ها با هم ذخیره می‌شوند.':'برای ویرایش، یک دسته را انتخاب کنید.'}</small></span></div><button className="primary" type="submit" disabled={busy||!dirty||remoteChanged}><Save size={17}/><SavingLabel busy={saving} label="ذخیره همه تغییرات"/></button></div>
     </form>
-    {leaving&&<ConfirmationDialog title="خروج بدون ذخیره؟" description="تغییرات تنظیمات هنوز ذخیره نشده‌اند. با خروج از صفحه، این پیش‌نویس از دست می‌رود." confirmLabel="خروج بدون ذخیره" onCancel={()=>setLeaving(null)} onConfirm={()=>{const destination=leaving;setLeaving(null);router.push(destination);}}/>}
+    {leaving&&<ConfirmationDialog title="خروج بدون ذخیره؟" description="تغییرات تنظیمات هنوز ذخیره نشده‌اند. با خروج از صفحه، این پیش‌نویس از دست می‌رود." confirmLabel="خروج بدون ذخیره" onCancel={()=>setLeaving(null)} onConfirm={()=>{const destination=leaving;setLeaving(null);if(destination==='__logout__')void logout();else router.push(destination);}}/>}
     {discard&&<ConfirmationDialog title="بارگذاری نسخه جدید؟" description="ویرایش‌های ذخیره‌نشده و کلید جدید واردشده کنار گذاشته می‌شوند و تنظیمات ذخیره‌شده بارگذاری می‌شود." confirmLabel="بارگذاری نسخه جدید" onCancel={()=>setDiscard(false)} onConfirm={()=>{setForm(settings);setBaseline(settings);setApiKey('');setValidation('');setAttempted(false);setSaved(false);setDiscard(false);}}/>}
   </div>;
 }

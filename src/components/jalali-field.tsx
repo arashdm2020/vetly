@@ -1,6 +1,7 @@
 'use client';
 
 import { useId, useRef, useState } from 'react';
+import { CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
 import { formatDate, jalaliParts, toISO } from '@/lib/clinic';
 
 const months = ['فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور', 'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'];
@@ -32,12 +33,12 @@ export function JalaliField({ label, value, onChange, min, max }: {
     <details ref={details} onKeyDown={event => { if (event.key === 'Escape') { event.preventDefault(); close(); } }}
       onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) event.currentTarget.open = false; }}
       onToggle={event => { if (event.currentTarget.open) setView(value); }}>
-      <summary ref={trigger} aria-labelledby={id}><span>{formatDate(value)}</span><span aria-hidden="true">▦</span></summary>
+      <summary ref={trigger} aria-labelledby={id}><span>{formatDate(value)}</span><CalendarDays size={17} aria-hidden="true"/></summary>
       <div className="calendar-popover" role="group" aria-label={'تقویم ' + label}>
         <div className="calendar-heading">
-          <button type="button" aria-label="ماه قبل" onClick={() => move(-1)}>→</button>
+          <button type="button" aria-label="ماه قبل" onClick={() => move(-1)}><ChevronRight size={17} aria-hidden="true"/></button>
           <strong aria-live="polite">{months[month - 1]} {year.toLocaleString('fa-IR', { useGrouping: false })}</strong>
-          <button type="button" aria-label="ماه بعد" onClick={() => move(1)}>←</button>
+          <button type="button" aria-label="ماه بعد" onClick={() => move(1)}><ChevronLeft size={17} aria-hidden="true"/></button>
         </div>
         <div className="calendar-days">
           {weekdays.map(day => <abbr key={day} title={day}>{day === 'پنجشنبه' ? 'پ' : day.slice(0, 1)}</abbr>)}
