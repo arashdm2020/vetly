@@ -14,10 +14,11 @@ export function smsProvider(name:ClinicSettings['smsProvider'],key:string,transp
       const parameters=input.pattern.parameters.map(p=>({name:p.name,value:input.values[p.variable]}));
       let response:Response;
       if(name==='faraz') {
-        if(!input.sender || !/^\d{1,20}$/.test(input.sender))return {status:'rejected',reason:'شماره خط فرستنده فراز تنظیم نشده است.'};
+        const sender=input.sender?.trim() || '90008361';
+        if(!/^\d{1,20}$/.test(sender))return {status:'rejected',reason:'شماره خط فرستنده فراز نامعتبر است.'};
         response=await transport('https://api.iranpayamak.com/ws/v1/sms/pattern',{method:'POST',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000),
           headers:{'Content-Type':'application/json','Accept':'application/json','Api-Key':key},
-          body:JSON.stringify({code:input.pattern.code,recipient:input.to,line_number:input.sender,number_format:'persian',attributes:Object.fromEntries(parameters.map(p=>[p.name,p.value]))})});
+          body:JSON.stringify({code:input.pattern.code,recipient:input.to,line_number:sender,number_format:'persian',attributes:Object.fromEntries(parameters.map(p=>[p.name,p.value]))})});
       } else if(name==='smsir') {
         response=await transport('https://api.sms.ir/v1/send/verify',{method:'POST',redirect:'error',cache:'no-store',signal:AbortSignal.timeout(8000),
           headers:{'Content-Type':'application/json','x-api-key':key},
