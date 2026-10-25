@@ -9,3 +9,10 @@ export const createPatientSchema = z.object({
   phone: z.string().max(30).transform(normalizePhone)
     .pipe(z.string({ error: 'شماره موبایل معتبر وارد کنید.' })),
 }).strict();
+
+export const changePatientPhoneSchema=z.object({
+  petId:z.uuid(),requestId:z.uuid(),
+  expectedPhone:z.string().max(30).transform(normalizePhone).pipe(z.string()),
+  phone:z.string().max(30).transform(normalizePhone).pipe(z.string()),
+}).strict();
+export type ChangePatientPhoneInput=z.input<typeof changePatientPhoneSchema>;

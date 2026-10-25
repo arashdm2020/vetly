@@ -1,4 +1,5 @@
 'use server';
+import { changePatientPhone } from '@/features/patients/change-phone';
 import { z } from 'zod';
 import { requireClinic } from '@/lib/auth';
 import { clinicSnapshot, createRecord, completeTask } from './service';
@@ -22,4 +23,16 @@ export async function registerRecord(input: unknown) {return mutation(()=>create
 export async function finishReminder(id: string) {return mutation(()=>completeTask(id));}
 export async function updateSettings(input: unknown, apiKey: string) {
   return mutation(()=>saveClinicSettings(input,z.string().trim().max(512).regex(/^[a-zA-Z0-9._-]*$/).parse(apiKey)));
+}
+
+export async function editPatientPhone(input:unknown) {
+  try {
+    await requireClinic();
+    const result=await changePatientPhone(input);
+    revalidatePath('/', 'layout');
+    return {ok:true as const,result,snapshot:await clinicSnapshot()};
+  } catch(error) {
+    const message=error instanceof Error?error.message:'';
+    return {ok:false as const,error:error instanceof z.ZodError?'شماره موبایل معتبر وارد کنید.':/^[آ-ی]/.test(message)?message:'نتیجه ذخیره مشخص نیست؛ پیش از تلاش مجدد صفحه و پنل پیامکی را بررسی کنید.'};
+  }
 }
