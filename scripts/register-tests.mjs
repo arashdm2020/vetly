@@ -7,7 +7,7 @@ import ts from 'typescript';
 const root=resolve(import.meta.dirname,'..');
 registerHooks({
   resolve(specifier,context,next) {
-    if(specifier==='next/headers'||specifier==='next/cache')specifier+='.js';
+    if(specifier==='next/headers'||specifier==='next/cache'||specifier==='next/server')specifier+='.js';
     if(specifier.startsWith('@/'))specifier=pathToFileURL(resolve(root,'src',specifier.slice(2))).href;
     if(specifier.startsWith('file:')||specifier.startsWith('.')) {
       const target=new URL(specifier,context.parentURL);

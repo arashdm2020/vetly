@@ -142,7 +142,7 @@ test('announcements is before settings; preview shows exact recipients and only 
     await submit();assert.ok(document.querySelector('dialog').textContent.includes('09122222222'));assert.ok(document.querySelector('dialog').textContent.includes('متن نمونه'));
     assert.equal(calls.filter(c=>c.body?.operation==='queue').length,0);await click(button('انصراف'));
     await submit();await click(button('تأیید و ثبت در صف'));assert.equal(calls.filter(c=>c.body?.operation==='queue').length,1);
-    assert.ok(document.querySelector('[role="status"]').textContent.includes('صف نرم‌افزار'));
+    assert.ok(document.querySelector('[role="status"]').textContent.includes('پردازش پس‌زمینه'));
   }finally{globalThis.fetch=originalFetch;}
 });
 

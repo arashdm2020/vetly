@@ -91,7 +91,7 @@ test('unauthenticated announcements reads and commands are denied before touchin
  const {GET,POST}=await import('../src/app/api/announcements/route.ts');
  const before=(await db.select().from(announcements)).length;
  assert.equal((await GET(new Request('https://clinic.example/api/announcements'))).status,401);
- for(const operation of ['preview','queue','refresh','cancel'])assert.equal((await POST(new Request('https://clinic.example/api/announcements',{method:'POST',body:JSON.stringify({operation})}))).status,401);
+ for(const operation of ['preview','queue','refresh','cancel','dispatch'])assert.equal((await POST(new Request('https://clinic.example/api/announcements',{method:'POST',body:JSON.stringify({operation})}))).status,401);
  assert.equal((await db.select().from(announcements)).length,before);
 });
 
@@ -128,4 +128,15 @@ test('line listing endpoint denies unauthenticated access; forged sender cannot 
 test('line listing keeps valid lines when optional rows are malformed and normalizes Persian digits',async()=>{
  const provider=farazAnnouncements('secret',async()=>new Response(JSON.stringify({status:'success',data:[null,{id:2},{line_number:'۹۰۰۰۸۳۶۱',is_dedicated:false}]}),{status:200}));
  assert.deepEqual(await provider.lines(),[{number:'90008361',dedicated:false}]);
+});
+
+test('immediate dispatch targets only the confirmed queued campaign and concurrent triggers send once',async()=>{
+ await cooldown();const first=await enqueue(input());await cooldown();const second=await enqueue(input());
+ let calls=0;globalThis.fetch=withLines(async()=>{calls++;return new Response(JSON.stringify({status:'success',data:99123}),{status:201});});
+ try{
+  const results=await Promise.all([processAnnouncements(second),processAnnouncements(second)]);
+  assert.equal(results.reduce((n,r)=>n+r.processed,0),1);assert.equal(calls,1);
+  assert.equal((await announcementReport(first)).campaign.status,'queued');assert.equal((await announcementReport(second)).campaign.status,'accepted');
+  await processAnnouncements(second);assert.equal(calls,1);await cancelAnnouncement(first);
+ }finally{globalThis.fetch=offline;}
 });

@@ -27,6 +27,7 @@ export function Announcements(){
   const [manual,setManual]=useState(''),[consent,setConsent]=useState(false),[history,setHistory]=useState<Campaign[]>([]),[report,setReport]=useState<Report|null>(null);
   const [lines,setLines]=useState<SenderLine[]>([]),[linesLoading,setLinesLoading]=useState(true),[linesError,setLinesError]=useState('');
   const [page,setPage]=useState(1);
+  const [dispatching,setDispatching]=useState<string|null>(null);
   const [preview,setPreview]=useState<Preview|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const lock=useRef(false),operation=useRef<{signature:string;id:string}|null>(null);
   async function historyLoad(target=page){setHistory(await api<Campaign[]>(undefined,undefined,target));setPage(target);}
@@ -48,7 +49,7 @@ export function Announcements(){
   });}
   async function queue(){if(!preview)return;const saved=preview;setPreview(null);await run(async()=>{
     const {id}=await api<{id:string}>({operation:'queue',input:saved.input,hash:saved.hash});
-    setNotice('درخواست در صف نرم‌افزار ثبت شد؛ زمان‌بند سرور آن را برای بررسی متن به فراز می‌فرستد.');
+    setNotice('درخواست ثبت شد و پردازش پس‌زمینه برای ارسال به فراز آغاز می‌شود؛ چند ثانیه دیگر فهرست را به‌روز کنید.');
     setReport(await api<Report>(undefined,id));await historyLoad(1);
   });}
   async function detail(id:string){await run(async()=>setReport(await api<Report>(undefined,id)));}
@@ -74,10 +75,12 @@ export function Announcements(){
       {report.campaign.lastError&&<p className="error">{report.campaign.lastError}</p>}
       <p className="form-hint">{report.campaign.reportAt?'آخرین تلاش برای دریافت گزارش: '+time(report.campaign.reportAt):'هنوز گزارش تحویل از فراز دریافت نشده است.'}</p>
       <div className="form-actions"><button type="button" disabled={busy||!report.campaign.providerId} onClick={()=>void run(async()=>{setReport(await api<Report>({operation:'refresh',id:report.campaign.id}));await historyLoad();})}><RefreshCw size={16}/>دریافت گزارش فراز</button>
+      {report.campaign.status==='queued'&&<button type="button" disabled={busy} onClick={()=>setDispatching(report.campaign.id)}>ارسال درخواست تأییدشده به فراز</button>}
       {report.campaign.status==='queued'&&<button type="button" disabled={busy} onClick={()=>void run(async()=>{setReport(await api<Report>({operation:'cancel',id:report.campaign.id}));await historyLoad();})}>لغو پیش از ارسال</button>}</div>
       <p>{report.recipients.length.toLocaleString('fa-IR')} گیرنده · تحویل تأییدشده: {report.recipients.filter(r=>r.status==='delivered').length.toLocaleString('fa-IR')}</p>
       <div className="announcement-recipient-list">{report.recipients.map(r=><div className="due-row" key={r.id}><strong>{r.name||'شماره دستی'}</strong> · <bdi>{r.phone}</bdi><p>{statusLabels[r.status]||'نامشخص'}</p></div>)}</div>
     </section>}
+    {dispatching&&<ConfirmationDialog title="پردازش درخواست در صف؟" description="همان متن و گیرندگان تأییدشده به فراز ارسال می‌شوند؛ درخواست تازه‌ای ساخته نمی‌شود. این ارسال هزینه دارد." confirmLabel="تأیید پردازش" onCancel={()=>setDispatching(null)} onConfirm={()=>{const id=dispatching;setDispatching(null);void run(async()=>{setReport(await api<Report>({operation:'dispatch',id}));setNotice('پردازش درخواست آغاز شد؛ چند ثانیه دیگر فهرست را به‌روز کنید.');});}}/>}
     {preview&&<ConfirmationDialog title="ثبت ارسال واقعی؟" description={`متن «${preview.input.title}» با خط ${preview.input.sender} برای ${preview.recipients.length} شماره یکتا ثبت می‌شود و هزینه دارد. پذیرش فراز به معنی تحویل نیست.`} confirmLabel="تأیید و ثبت در صف" onCancel={()=>setPreview(null)} onConfirm={()=>void queue()}>
       <p className="record-text announcement-preview-text">{preview.input.text}</p><h3>گیرندگان نهایی</h3><div className="announcement-recipient-list">{preview.recipients.map(row=><p key={row.phone}>{row.name} · <bdi>{row.phone}</bdi></p>)}</div>
     </ConfirmationDialog>}
