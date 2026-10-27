@@ -114,4 +114,35 @@ test('phone editor confirms before saving, preserves failed input and shows prov
   assert.ok(document.querySelector('[role="status"]').textContent.includes('12345'));
 });
 
+test('announcements is before settings; preview shows exact recipients and only confirmation queues a send',async()=>{
+  const {Announcements}=await import('../src/components/announcements.tsx');
+  const {Shell}=await import('../src/components/shell.tsx');
+  await act(async()=>root.render(null));
+  context={patients:[],settings:fresh({smsProvider:'faraz',smsEnabled:true}),error:''};
+  await act(async()=>root.render(React.createElement(UIContext.Provider,{value:context},React.createElement(Shell,null,'content'))));
+  const links=[...document.querySelectorAll('nav a')].map(a=>a.getAttribute('href'));
+  assert.equal(links[links.indexOf('/settings')-1],'/announcements');
+  const calls=[],originalFetch=globalThis.fetch;
+  const id='11111111-1111-4111-8111-111111111111';
+  globalThis.fetch=async(url,options)=>{
+    const body=options?.body?JSON.parse(options.body):null;calls.push({url,body});
+    let result=[];
+    if(body?.operation==='preview')result={hash:'a'.repeat(64),recipients:[{name:'همکار',phone:'09122222222'}]};
+    if(body?.operation==='queue')result={id};
+    if(url.includes('?id='))result={campaign:{id,title:'غذای جدید',text:'متن نمونه',sender:'9000',status:'queued',createdAt:Date.now()},recipients:[]};
+    return new Response(JSON.stringify(result),{status:200});
+  };
+  try{
+    await act(async()=>root.render(React.createElement(UIContext.Provider,{value:context},React.createElement(Announcements))));
+    assert.equal(calls.filter(c=>c.body).length,0);
+    await type(input('عنوان داخلی'),'غذای جدید');await type(input('خط مجاز ارسال متن آزاد'),'9000');
+    async function textarea(label,value){const node=[...document.querySelectorAll('label')].find(n=>n.textContent.startsWith(label)).querySelector('textarea');await act(async()=>{Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype,'value').set.call(node,value);node.dispatchEvent(new Event('input',{bubbles:true}));});}
+    await textarea('متن پیامک','متن نمونه');await textarea('شماره‌های دستی','همکار، 09122222222');await click(input('مجوز ارسال'));
+    await submit();assert.ok(document.querySelector('dialog').textContent.includes('09122222222'));assert.ok(document.querySelector('dialog').textContent.includes('متن نمونه'));
+    assert.equal(calls.filter(c=>c.body?.operation==='queue').length,0);await click(button('انصراف'));
+    await submit();await click(button('تأیید و ثبت در صف'));assert.equal(calls.filter(c=>c.body?.operation==='queue').length,1);
+    assert.ok(document.querySelector('[role="status"]').textContent.includes('صف نرم‌افزار'));
+  }finally{globalThis.fetch=originalFetch;}
+});
+
 test.after(async()=>{await act(async()=>root.unmount());dom.window.close();});

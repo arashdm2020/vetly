@@ -1,12 +1,13 @@
 'use client';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { House, PawPrint, CalendarDays, BellRing, Settings2, HeartPulse, LogOut, ChevronLeft, ShieldCheck } from 'lucide-react';
+import { Megaphone, House, PawPrint, CalendarDays, BellRing, Settings2, HeartPulse, LogOut, ChevronLeft, ShieldCheck } from 'lucide-react';
 import { useClinic } from './clinic-provider';
 import { logout } from '@/features/auth/actions';
 const links = [
   {href:'/',title:'نمای کلی',icon:House}, {href:'/patients',title:'بیماران',icon:PawPrint},
   {href:'/appointments',title:'نوبت‌ها',icon:CalendarDays}, {href:'/reminders',title:'یادآوری‌ها',icon:BellRing},
+  {href:'/announcements',title:'اطلاع‌رسانی',icon:Megaphone},
   {href:'/settings',title:'تنظیمات',icon:Settings2},
 ];
 export function Shell({children}:{children:React.ReactNode}) {
