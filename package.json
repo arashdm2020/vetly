@@ -11,7 +11,7 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "node --env-file=.env.local ./node_modules/drizzle-kit/bin.cjs migrate --config=drizzle.migrate.config.ts",
     "test:config": "node --experimental-strip-types scripts/check-config.mjs",
-    "test": "node --conditions=react-server --import ./scripts/register-tests.mjs --test scripts/integration.test.mjs",
+    "test": "node --conditions=react-server --import ./scripts/register-tests.mjs --test scripts/integration.test.mjs scripts/announcements.test.mjs",
     "test:ui": "node --import ./scripts/register-ui-tests.mjs --test scripts/ui.test.mjs"
   },
   "dependencies": {

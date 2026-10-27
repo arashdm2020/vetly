@@ -67,3 +67,6 @@ label{display:block;min-width:0;color:#c5d7ce;font-size:12px}input,select,textar
   .settings-savebar .save-status,.settings-savebar .primary{flex-basis:100%}
   .save-status small{max-width:none}
 }
+
+.announcements-page{display:grid;gap:20px;min-width:0}.announcements-page .page-heading{margin-bottom:0}.announcements-page h2{display:flex;align-items:center;gap:8px}.announcements-page p{overflow-wrap:anywhere}.announcement-patients,.announcement-recipient-list{max-height:320px;overflow:auto;min-width:0}.announcement-patients .check-row{flex-wrap:wrap}.announcements-page fieldset{max-width:100%}
+@media(max-width:700px){.sidebar nav{grid-template-columns:repeat(6,minmax(0,1fr))}.sidebar nav a{font-size:9px;gap:3px}.sidebar nav a>svg{width:18px;height:18px}.announcements-page .section-heading{align-items:flex-start}}

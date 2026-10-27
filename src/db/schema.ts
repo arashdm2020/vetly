@@ -96,3 +96,17 @@ export const smsDeliveries = sqliteTable('sms_deliveries', {
 export const settings = sqliteTable('settings', {
   key: text('key').primaryKey(), value: text('value').notNull(), ...timestamps(),
 });
+
+// Independent outbound campaigns; clinical records and reminder queues stay separate.
+export const announcements = sqliteTable('announcements', {
+  id:id(), requestId:text('request_id').notNull(), fingerprint:text('fingerprint').notNull(),
+  title:text('title').notNull(), text:text('text').notNull(), sender:text('sender').notNull(),
+  status:text('status',{enum:['queued','submitting','accepted','rejected','unknown','cancelled']}).notNull().default('queued'),
+  providerId:text('provider_id'), providerStatus:text('provider_status'), lastError:text('last_error'),
+  reportAt:integer('report_at'), ...timestamps(),
+},t=>[uniqueIndex('announcements_request_idx').on(t.requestId),index('announcements_queue_idx').on(t.status,t.createdAt)]);
+export const announcementRecipients = sqliteTable('announcement_recipients', {
+  id:id(),announcementId:text('announcement_id').notNull().references(()=>announcements.id,{onDelete:'restrict'}),
+  phone:text('phone').notNull(),name:text('name').notNull().default(''),
+  status:text('status').notNull().default('unreported'), ...timestamps(),
+},t=>[uniqueIndex('announcement_phone_idx').on(t.announcementId,t.phone)]);
