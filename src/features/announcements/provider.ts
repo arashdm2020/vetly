@@ -11,6 +11,25 @@ export function farazAnnouncements(key:string,transport:typeof fetch=fetch) {
       headers:{'Api-Key':key,Accept:'application/json',...(body?{'Content-Type':'application/json'}:{})},...(body?{body:JSON.stringify(body)}:{})});
   }
   return {
+    async lines(){
+      let response:Response;
+      try {response=await request('/lines/accessible');}catch{throw new Error('دریافت خطوط فراز ممکن نشد؛ اتصال را بررسی و دوباره تلاش کنید.');}
+      const json=record(await response.json().catch(()=>null));
+      if(!response.ok||json.status!=='success')throw new Error(`فهرست خطوط فراز دریافت نشد (HTTP ${response.status})؛ کلید و دسترسی حساب را بررسی کنید.`);
+      const data=record(json.data);
+      const rows=Array.isArray(json.data)?json.data:Array.isArray(data.items)?data.items:Array.isArray(data.lines)?data.lines:null;
+      if(!rows)throw new Error('ساختار فهرست خطوط فراز قابل تشخیص نیست؛ از پشتیبانی فراز پیگیری کنید.');
+      const lines=rows.flatMap(item=>{
+        const row=record(item);
+        // Never interpret row IDs or arbitrary nested numbers as sender lines.
+        const raw=typeof item==='string'?item:row.line_number??row.number;
+        const number=typeof raw==='string'?raw.trim():typeof raw==='number'&&Number.isSafeInteger(raw)?String(raw):'';
+        if(!/^\d{1,20}$/.test(number))return [];
+        return [{number,dedicated:typeof row.is_dedicated==='boolean'?row.is_dedicated:null}];
+      });
+      if(rows.length&&lines.length!==rows.length)throw new Error('بخشی از فهرست خطوط فراز قابل تشخیص نیست؛ از پشتیبانی پیگیری کنید.');
+      return [...new Map(lines.map(line=>[line.number,line])).values()];
+    },
     async send(text:string,sender:string,recipients:string[]):Promise<AnnouncementSendResult>{
       try {
         const response=await request('/sms/simple',{text,line_number:sender,recipients,number_format:'english'});

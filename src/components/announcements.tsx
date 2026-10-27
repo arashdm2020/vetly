@@ -7,6 +7,11 @@ import { recipientLimit, statusLabels, type AnnouncementInput } from '@/features
 import type { announcementReport, listAnnouncements } from '@/features/announcements/service';
 import { PageHeader, EmptyState } from './workspace/primitives';
 import { ConfirmationDialog } from './workspace/confirm-dialog';
+type SenderLine={number:string;dedicated:boolean|null};
+async function fetchSenderLines(){
+  const response=await fetch('/api/announcements/lines',{cache:'no-store'});
+  const data=await response.json();if(!response.ok)throw new Error(data.error||'دریافت خطوط فراز ممکن نشد.');return data.lines as SenderLine[];
+}
 type Campaign=Awaited<ReturnType<typeof listAnnouncements>>[number];
 type Report=Awaited<ReturnType<typeof announcementReport>>;
 type Preview={recipients:{phone:string;name:string}[];hash:string;input:AnnouncementInput};
@@ -20,11 +25,19 @@ export function Announcements(){
   const [title,setTitle]=useState(''),[text,setText]=useState(''),[sender,setSender]=useState('');
   const [audience,setAudience]=useState<AnnouncementInput['audience']>('none'),[selected,setSelected]=useState<string[]>([]);
   const [manual,setManual]=useState(''),[consent,setConsent]=useState(false),[history,setHistory]=useState<Campaign[]>([]),[report,setReport]=useState<Report|null>(null);
+  const [lines,setLines]=useState<SenderLine[]>([]),[linesLoading,setLinesLoading]=useState(true),[linesError,setLinesError]=useState('');
   const [page,setPage]=useState(1);
   const [preview,setPreview]=useState<Preview|null>(null),[busy,setBusy]=useState(false),[error,setError]=useState(''),[notice,setNotice]=useState('');
   const lock=useRef(false),operation=useRef<{signature:string;id:string}|null>(null);
   async function historyLoad(target=page){setHistory(await api<Campaign[]>(undefined,undefined,target));setPage(target);}
   useEffect(()=>{let active=true;api<Campaign[]>().then(rows=>{if(active)setHistory(rows);}).catch(()=>{if(active)setError('تاریخچه بارگذاری نشد؛ اتصال و اجرای مهاجرت دیتابیس را بررسی کنید.');});return()=>{active=false;};},[]);
+  useEffect(()=>{let active=true;fetchSenderLines().then(rows=>{if(active){setLines(rows);setSender(rows.length===1?rows[0].number:'');}}).catch(e=>{if(active)setLinesError(e instanceof Error?e.message:'دریافت خطوط فراز ممکن نشد.');}).finally(()=>{if(active)setLinesLoading(false);});return()=>{active=false;};},[]);
+  async function reloadLines(){
+    setLinesLoading(true);setLinesError('');
+    try{const rows=await fetchSenderLines();setLines(rows);setSender(current=>rows.some(line=>line.number===current)?current:rows.length===1?rows[0].number:'');}
+    catch(e){setLines([]);setSender('');setLinesError(e instanceof Error?e.message:'دریافت خطوط فراز ممکن نشد.');}
+    finally{setLinesLoading(false);}
+  }
   async function run(work:()=>Promise<void>){if(lock.current)return;lock.current=true;setBusy(true);setError('');setNotice('');try{await work();}catch(e){setError(e instanceof Error?e.message:'نتیجه مشخص نیست؛ تاریخچه و پنل فراز را بررسی کنید.');}finally{lock.current=false;setBusy(false);}}
   async function prepare(){await run(async()=>{
     const entries=manual.split(/\n/).map(row=>row.trim()).filter(Boolean).map(row=>{const parts=row.split(/[,،]/);const phone=normalizePhone(parts.at(-1)!.trim());if(!phone)throw new Error('شماره دستی نامعتبر است؛ هر خط را بررسی کنید.');return {name:parts.length>1?parts.slice(0,-1).join('،').trim():'',phone};});
@@ -40,17 +53,17 @@ export function Announcements(){
   });}
   async function detail(id:string){await run(async()=>setReport(await api<Report>(undefined,id)));}
   return <div className="announcements-page"><PageHeader title="اطلاع‌رسانی" description="متن دلخواه برای مشتریان، همکاران و شماره‌های دستی؛ مستقل از پیامک‌های پرونده و یادآوری."/>
-    <div className="inline-notice"><p>متن آزاد در فراز نیازمند بررسی است. ثبت درخواست و پذیرش سرویس به معنی تأیید متن یا تحویل نیست. فقط از خط عمومی یا اختصاصی مجاز حساب استفاده کنید؛ خط پترن خودکار انتخاب نمی‌شود.</p></div>
+    <div className="inline-notice"><p>متن آزاد در فراز نیازمند بررسی است. ثبت درخواست و پذیرش سرویس به معنی تأیید متن یا تحویل نیست. خطوط مجاز از حساب فراز دریافت می‌شوند؛ خط پترن به‌جای آن‌ها استفاده نمی‌شود.</p></div>
     {error&&<p className="error" role="alert">{error}</p>}{notice&&<p className="inline-notice" role="status">{notice}</p>}
     <form className="panel" noValidate onSubmit={event=>{event.preventDefault();void prepare();}}><fieldset className="plain-fieldset" disabled={busy}>
-      <h2><Megaphone size={18}/> اطلاع‌رسانی جدید</h2><div className="form-grid"><label>عنوان داخلی<input value={title} maxLength={100} onChange={e=>setTitle(e.target.value)}/></label><label>خط مجاز ارسال متن آزاد<input type="tel" dir="ltr" value={sender} maxLength={20} onChange={e=>setSender(e.target.value)} placeholder="شماره خط موجود در پنل فراز"/></label></div>
+      <h2><Megaphone size={18}/> اطلاع‌رسانی جدید</h2><div className="form-grid"><label>عنوان داخلی<input value={title} maxLength={100} onChange={e=>setTitle(e.target.value)}/></label><div><label>خط فرستنده<select dir="ltr" value={sender} disabled={linesLoading||!lines.length} onChange={e=>setSender(e.target.value)}><option value="">{linesLoading?'در حال دریافت خطوط…':lines.length?'خط فرستنده را انتخاب کنید':'خط قابل استفاده‌ای دریافت نشد'}</option>{lines.map(line=><option key={line.number} value={line.number}>{line.number}{line.dedicated===true?' — اختصاصی':line.dedicated===false?' — عمومی':''}</option>)}</select></label><button type="button" disabled={busy||linesLoading} onClick={()=>void reloadLines()}><RefreshCw size={14}/>دریافت مجدد خطوط</button>{linesError&&<p className="field-error" role="alert">{linesError}</p>}{!linesLoading&&!linesError&&!lines.length&&<p className="form-hint">هیچ خطی برای حساب برنگشت؛ فعال‌سازی خط عمومی را از پشتیبانی فراز پیگیری کنید.</p>}<p className="form-hint">خطوط از خود حساب فراز دریافت می‌شوند. دریافت فهرست پیامکی ارسال نمی‌کند؛ عمومی بودن خط تضمین عبور از بلک‌لیست نیست.</p></div></div>
       <label>متن پیامک<textarea value={text} rows={5} maxLength={1600} onChange={e=>setText(e.target.value)}/></label><p className="form-hint">{text.length.toLocaleString('fa-IR')} از ۱۶۰۰ نویسه · عنوان داخلی ارسال نمی‌شود. هزینه و تعداد قطعات پیامک را فراز تعیین می‌کند.</p>
       <div className="form-grid"><label>گیرندگان از پرونده‌ها<select value={audience} onChange={e=>setAudience(e.target.value as AnnouncementInput['audience'])}><option value="none">فقط شماره‌های دستی</option><option value="all">همه صاحبان پت</option><option value="dog">صاحبان سگ</option><option value="cat">صاحبان گربه</option><option value="selected">بیماران انتخاب‌شده</option></select></label><label>شماره‌های دستی؛ هر خط یک نفر<textarea rows={5} value={manual} onChange={e=>setManual(e.target.value)} placeholder={'نام همکار، 09123456789\n09123456789'}/></label></div>
       {audience==='selected'&&<div className="announcement-patients">{patients.length?patients.map(p=><label className="check-row" key={p.id}><input type="checkbox" checked={selected.includes(p.id)} onChange={e=>setSelected(old=>e.target.checked?[...old,p.id]:old.filter(id=>id!==p.id))}/>{p.name} · {p.owner} · <bdi>{p.phone}</bdi></label>):<p>پرونده‌ای ثبت نشده است.</p>}</div>}
       <p className="form-hint">شماره‌های تکراری یک‌بار دریافت می‌کنند. حداکثر هر درخواست {recipientLimit.toLocaleString('fa-IR')} گیرنده یکتا است. شماره‌های دستی در همین گزارش ذخیره می‌شوند.</p>
       <label className="check-row"><input type="checkbox" checked={consent} onChange={e=>setConsent(e.target.checked)}/>مجوز ارسال این اطلاع‌رسانی به گیرندگان انتخاب‌شده را دارم.</label>
       {!settings.smsEnabled||settings.smsProvider!=='faraz'?<p className="error">برای ارسال، سرویس فراز باید در تنظیمات پیامک فعال باشد.</p>:null}
-      <div className="form-actions"><button className="primary" disabled={busy||!consent||!title.trim()||!text.trim()||!sender.trim()}><Send size={17}/>{busy?'در حال بررسی…':'بررسی گیرندگان و تأیید ارسال'}</button></div>
+      <div className="form-actions"><button className="primary" disabled={busy||linesLoading||!consent||!title.trim()||!text.trim()||!lines.some(line=>line.number===sender)}><Send size={17}/>{busy?'در حال بررسی…':'بررسی گیرندگان و تأیید ارسال'}</button></div>
     </fieldset></form>
     <section className="panel"><div className="section-heading"><h2>گزارش اطلاع‌رسانی‌ها</h2><button type="button" disabled={busy} onClick={()=>void run(()=>historyLoad())}><RefreshCw size={16}/>به‌روزرسانی فهرست</button></div>
       {history.length?history.map(c=><article className="due-row" key={c.id}><button type="button" disabled={busy} onClick={()=>void detail(c.id)}>{c.title}</button><p>{time(c.createdAt)} · {statusLabels[c.status]}{c.providerStatus&&<> · وضعیت گزارش فراز: {statusLabels[c.providerStatus]||'نامشخص'}</>}{c.providerId&&<> · شناسه فراز: <bdi>{c.providerId}</bdi></>}</p>{c.lastError&&<p>{c.lastError}</p>}</article>):<EmptyState icon={Megaphone} title="اطلاع‌رسانی ثبت نشده" description="ارسال‌های شما و نتیجه بررسی آن‌ها اینجا نمایش داده می‌شوند."/>}<div className="form-actions"><button type="button" disabled={busy||page===1} onClick={()=>void run(()=>historyLoad(page-1))}>صفحه قبل</button><span>صفحه {page.toLocaleString('fa-IR')}</span><button type="button" disabled={busy||history.length<20} onClick={()=>void run(()=>historyLoad(page+1))}>صفحه بعد</button></div>

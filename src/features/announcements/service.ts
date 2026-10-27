@@ -20,6 +20,11 @@ export async function resolveAnnouncement(raw:unknown){
   return {input,recipients};
 }
 export function audienceHash(recipients:{phone:string;name:string}[]){return createHash('sha256').update(JSON.stringify(recipients)).digest('hex');}
+export async function accessibleAnnouncementLines(){
+  const config=await readClinicSettings();
+  if(config.smsProvider!=='faraz')throw new Error('ابتدا سرویس فراز را در تنظیمات پیامک انتخاب کنید.');
+  return farazAnnouncements(await readSmsKey('faraz')).lines();
+}
 export async function queueAnnouncement(raw:unknown,expectedHash:string){
   const {input,recipients}=await resolveAnnouncement(raw),db=getDatabase();
   if(audienceHash(recipients)!==expectedHash)throw new Error('فهرست گیرندگان تغییر کرده است؛ دوباره پیش‌نمایش را بررسی کنید.');
@@ -28,7 +33,8 @@ export async function queueAnnouncement(raw:unknown,expectedHash:string){
   if(old){if(old.fingerprint!==fingerprint)throw new Error('این درخواست قبلاً با محتوای دیگری ثبت شده است.');return old.id;}
   const config=await readClinicSettings();
   if(!config.smsEnabled||config.smsProvider!=='faraz')throw new Error('ابتدا سرویس فراز را در تنظیمات پیامک فعال کنید.');
-  await readSmsKey('faraz'); // Validate configuration before committing an unsendable campaign.
+  const lines=await accessibleAnnouncementLines();
+  if(!lines.some(line=>line.number===input.sender))throw new Error('خط انتخاب‌شده در فهرست خطوط مجاز حساب نیست؛ فهرست خطوط را دوباره دریافت کنید.');
   const id=crypto.randomUUID(),now=Date.now();
   // Each insertion is conditional on this campaign ID. Concurrent UUID replays
   // return the winning campaign; the persistent cooldown limits accidental bulk sends.

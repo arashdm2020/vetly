@@ -14,7 +14,8 @@ import { farazAnnouncements } from '../src/features/announcements/provider.ts';
 const folder=mkdtempSync(join(tmpdir(),'vetly-announcement-'));
 process.env.TURSO_DATABASE_URL='file:'+join(folder,'db.sqlite');process.env.NODE_ENV='test';process.env.SETTINGS_ENCRYPTION_KEY='a'.repeat(64);
 // Fail closed. Every provider request below must be explicitly mocked.
-const offline=async()=>{throw new Error('Real network disabled');};globalThis.fetch=offline;
+const withLines=handler=>async(url,options)=>String(url).endsWith('/lines/accessible')?new Response(JSON.stringify({status:'success',data:[{line_number:'900012345',is_dedicated:false}]}),{status:200}):handler(url,options);
+const offline=withLines(async()=>{throw new Error('Real network disabled');});globalThis.fetch=offline;
 let db,cat,dog;
 before(async()=>{
  db=getDatabase();await migrate(db,{migrationsFolder:'./drizzle'});
@@ -42,7 +43,7 @@ test('recipient preview deduplicates normalized owner/manual phones, selects spe
 });
 
 test('campaign queue is persistent, replay-safe, throttled, and sends only in the worker once',async()=>{
- const calls=[];globalThis.fetch=async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify({status:'success',data:72501}),{status:201});};
+ const calls=[];globalThis.fetch=withLines(async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify({status:'success',data:72501}),{status:201});});
  try{
  const data=input(),hash=audienceHash((await resolveAnnouncement(data)).recipients);
  const ids=await Promise.all([queueAnnouncement(data,hash),queueAnnouncement(data,hash)]);assert.equal(ids[0],ids[1]);assert.equal(calls.length,0);
@@ -60,16 +61,16 @@ test('campaign queue is persistent, replay-safe, throttled, and sends only in th
 
 test('reports only update recognized campaign recipients, do not send, and throttle refresh',async()=>{
  const [campaign]=await listAnnouncements();let calls=0;
- globalThis.fetch=async(url,options)=>{calls++;assert.equal(options.method,'GET');return new Response(JSON.stringify(url.includes('/items')?{status:'success',data:{items:[{recipient:'09121111111',status:'delivered'},{recipient:'09122222222',status:'blacklist'},{recipient:'09129999999',status:'delivered'}]}}:{status:'success',data:{status:'approved'}}),{status:200});};
+ globalThis.fetch=withLines(async(url,options)=>{calls++;assert.equal(options.method,'GET');return new Response(JSON.stringify(url.includes('/items')?{status:'success',data:{items:[{recipient:'09121111111',status:'delivered'},{recipient:'09122222222',status:'blacklist'},{recipient:'09129999999',status:'delivered'}]}}:{status:'success',data:{status:'approved'}}),{status:200});});
  try{await refreshAnnouncement(campaign.id);const report=await announcementReport(campaign.id);assert.equal(calls,2);assert.equal(report.campaign.providerStatus,'approved');assert.deepEqual(report.recipients.map(r=>r.status),['delivered','blacklist']);await assert.rejects(refreshAnnouncement(campaign.id),/۳۰ ثانیه/);}finally{globalThis.fetch=offline;}
 });
 
 test('unknown and rejected sends never retry and cancellation blocks the queued send',async()=>{
- let count=0;globalThis.fetch=async()=>{count++;throw new DOMException('timeout','TimeoutError');};
+ let count=0;globalThis.fetch=withLines(async()=>{count++;throw new DOMException('timeout','TimeoutError');});
  try{
  await cooldown();const id=await enqueue(input());await processAnnouncements();assert.equal((await announcementReport(id)).campaign.status,'unknown');await processAnnouncements();assert.equal(count,1);
  await cooldown();const cancelled=await enqueue(input());await cancelAnnouncement(cancelled);await processAnnouncements();assert.equal(count,1);assert.equal((await announcementReport(cancelled)).campaign.status,'cancelled');
- globalThis.fetch=async()=>{count++;return new Response(JSON.stringify({status:'error',message:'test-secret-announcements'}),{status:422});};
+ globalThis.fetch=withLines(async()=>{count++;return new Response(JSON.stringify({status:'error',message:'test-secret-announcements'}),{status:422});});
  await cooldown();const rejected=await enqueue(input());await processAnnouncements();const report=await announcementReport(rejected);assert.equal(report.campaign.status,'rejected');assert.ok(!JSON.stringify(report).includes('test-secret-announcements'));await processAnnouncements();assert.equal(count,2);
  }finally{globalThis.fetch=offline;}
 });
@@ -105,4 +106,21 @@ test('confirmed audience changes are rejected and failed recipient insertion rol
  await db.$client.execute("CREATE TRIGGER fail_announcement_recipient BEFORE INSERT ON announcement_recipients BEGIN SELECT RAISE(ABORT,'test rollback'); END");
  try{await assert.rejects(enqueue(input()));assert.equal((await db.select().from(announcements)).length,before);}
  finally{await db.$client.execute('DROP TRIGGER fail_announcement_recipient');}
+});
+
+test('accessible sender lines use a read-only request, deduplicate safely and never expose raw data',async()=>{
+ const calls=[];
+ const provider=farazAnnouncements('private-key',async(url,options)=>{calls.push({url,options});return new Response(JSON.stringify({status:'success',data:{items:[{line_number:'900012345',is_dedicated:false,token:'private-key'},{number:'900099999',is_dedicated:true},{number:'900012345',is_dedicated:false}]}}),{status:200});});
+ const lines=await provider.lines();assert.deepEqual(lines,[{number:'900012345',dedicated:false},{number:'900099999',dedicated:true}]);
+ assert.equal(calls.length,1);assert.equal(calls[0].url,'https://api.iranpayamak.com/ws/v1/lines/accessible');assert.equal(calls[0].options.method,'GET');assert.equal(calls[0].options.body,undefined);assert.ok(!JSON.stringify(lines).includes('private-key'));
+ const empty=farazAnnouncements('secret',async()=>new Response(JSON.stringify({status:'success',data:[]}),{status:200}));assert.deepEqual(await empty.lines(),[]);
+ const invalid=farazAnnouncements('secret',async()=>new Response(JSON.stringify({status:'success',data:[{id:9000}]}),{status:200}));await assert.rejects(invalid.lines(),/قابل تشخیص/);
+ const rejected=farazAnnouncements('secret',async()=>new Response(JSON.stringify({status:'error',message:'secret'}),{status:401}));await assert.rejects(rejected.lines(),error=>!error.message.includes('secret'));
+ const timeout=farazAnnouncements('secret',async()=>{throw new Error('secret');});await assert.rejects(timeout.lines(),error=>!error.message.includes('secret'));
+});
+
+test('line listing endpoint denies unauthenticated access; forged sender cannot enter queue',async()=>{
+ const {GET}=await import('../src/app/api/announcements/lines/route.ts');assert.equal((await GET()).status,401);
+ const data={...input(),sender:'999999'};await cooldown();const count=(await db.select().from(announcements)).length;
+ await assert.rejects(enqueue(data),/فهرست خطوط مجاز/);assert.equal((await db.select().from(announcements)).length,count);
 });
