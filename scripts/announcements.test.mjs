@@ -124,3 +124,8 @@ test('line listing endpoint denies unauthenticated access; forged sender cannot 
  const data={...input(),sender:'999999'};await cooldown();const count=(await db.select().from(announcements)).length;
  await assert.rejects(enqueue(data),/فهرست خطوط مجاز/);assert.equal((await db.select().from(announcements)).length,count);
 });
+
+test('line listing keeps valid lines when optional rows are malformed and normalizes Persian digits',async()=>{
+ const provider=farazAnnouncements('secret',async()=>new Response(JSON.stringify({status:'success',data:[null,{id:2},{line_number:'۹۰۰۰۸۳۶۱',is_dedicated:false}]}),{status:200}));
+ assert.deepEqual(await provider.lines(),[{number:'90008361',dedicated:false}]);
+});
