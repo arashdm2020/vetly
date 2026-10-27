@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { normalizePhone } from '@/lib/clinic';
+import { digits, normalizePhone } from '@/lib/clinic';
 const base='https://api.iranpayamak.com/ws/v1';
 export const deliveryStatuses=['not-started','in-queue','sent','send-failure','delivered','delivery-failure','delivery-undetermined','system-error','blacklist'] as const;
 export type AnnouncementSendResult={status:'accepted';id:string}|{status:'rejected'|'unknown';reason:string};
@@ -23,11 +23,16 @@ export function farazAnnouncements(key:string,transport:typeof fetch=fetch) {
         const row=record(item);
         // Never interpret row IDs or arbitrary nested numbers as sender lines.
         const raw=typeof item==='string'?item:row.line_number??row.number;
-        const number=typeof raw==='string'?raw.trim():typeof raw==='number'&&Number.isSafeInteger(raw)?String(raw):'';
+        const number=typeof raw==='string'?digits(raw.trim()):typeof raw==='number'&&Number.isSafeInteger(raw)?String(raw):'';
         if(!/^\d{1,20}$/.test(number))return [];
         return [{number,dedicated:typeof row.is_dedicated==='boolean'?row.is_dedicated:null}];
       });
-      if(rows.length&&lines.length!==rows.length)throw new Error('بخشی از فهرست خطوط فراز قابل تشخیص نیست؛ از پشتیبانی پیگیری کنید.');
+      if(rows.length&&lines.length!==rows.length){
+        const known=['line_number','number','line','lineNumber','phone_number','sender_number','is_dedicated'];
+        // Diagnostics contain only fixed field names and types, never values.
+        console.warn('faraz_lines_shape',JSON.stringify({rows:rows.length,recognized:lines.length,shapes:rows.slice(0,5).map(item=>({type:item===null?'null':typeof item,fields:known.filter(field=>field in record(item)).map(field=>({field,type:typeof record(item)[field]}))}))}));
+        if(!lines.length)throw new Error('شماره خطی در پاسخ فراز قابل تشخیص نیست؛ ساختار پاسخ نیازمند بررسی است.');
+      }
       return [...new Map(lines.map(line=>[line.number,line])).values()];
     },
     async send(text:string,sender:string,recipients:string[]):Promise<AnnouncementSendResult>{
