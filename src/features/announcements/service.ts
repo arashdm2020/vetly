@@ -77,14 +77,14 @@ export async function refreshAnnouncement(id:string){
     ...report.recipients.map(row=>db.update(announcementRecipients).set({status:row.status,updatedAt:Date.now()}).where(and(eq(announcementRecipients.announcementId,id),eq(announcementRecipients.phone,row.phone)))),
   ]);
 }
-export async function processAnnouncements(){
+export async function processAnnouncements(campaignId?:string){
   const db=getDatabase(),config=await readClinicSettings();
   // Stale in-flight claims become unknown, never queued for another paid send.
   await db.update(announcements).set({status:'unknown',lastError:'پردازش قطع شد؛ پیش از ارسال جدید پنل را بررسی کنید.',updatedAt:Date.now()})
     .where(and(eq(announcements.status,'submitting'),lte(announcements.updatedAt,Date.now()-10*60000)));
   if(!config.smsEnabled||config.smsProvider!=='faraz')return {processed:0};
   const key=await readSmsKey('faraz');
-  const [campaign]=await db.select().from(announcements).where(eq(announcements.status,'queued')).orderBy(asc(announcements.createdAt)).limit(1);
+  const [campaign]=await db.select().from(announcements).where(campaignId?and(eq(announcements.status,'queued'),eq(announcements.id,campaignId)):eq(announcements.status,'queued')).orderBy(asc(announcements.createdAt)).limit(1);
   if(!campaign)return {processed:0};
   const [claim]=await db.update(announcements).set({status:'submitting',updatedAt:Date.now()}).where(and(eq(announcements.id,campaign.id),eq(announcements.status,'queued'))).returning({id:announcements.id});
   if(!claim)return {processed:0};
