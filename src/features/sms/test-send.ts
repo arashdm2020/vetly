@@ -12,7 +12,7 @@ export const testSendSchema = z.object({
   recipient:z.string().max(30).transform(normalizePhone).pipe(z.string()),
   pattern:z.enum(['registrationPattern','vaccinePattern','taskPattern']),
   values:z.object({pet:z.string().trim().min(1).max(80),date:z.string().trim().min(1).max(40),
-    clinic:z.string().trim().min(1).max(100),phone:z.string().trim().min(1).max(30),action:z.string().trim().min(1).max(100)}).strict(),
+    clinic:z.string().trim().min(1).max(100),phone:z.string().trim().min(1).max(30),action:z.string().trim().min(1).max(100),vaccine:z.string().trim().max(120).default('')}).strict(),
 }).strict();
 
 // Caller must authenticate before invoking. No worker, patient or reminder side effects.
@@ -21,6 +21,8 @@ export async function sendTestSms(raw:unknown) {
   const config=await readClinicSettings();
   if(!config.smsEnabled || config.smsProvider!=='faraz' || !config[input.pattern].code)
     return {status:'rejected' as const,reason:'فراز و پترن انتخابی را ابتدا ذخیره و فعال کنید.'};
+  if(config[input.pattern].parameters.some(parameter=>parameter.variable==='vaccine')&&!input.values.vaccine)
+    return {status:'rejected' as const,reason:'نوع واکسن را برای آزمایش این پترن وارد کنید.'};
   const key=await readSmsKey('faraz');
   const db=getDatabase();
   // Persistent global cooldown survives cold starts and concurrent Vercel instances.

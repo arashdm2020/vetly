@@ -31,16 +31,17 @@ export async function processDueReminders() {
     try {
       const [patient]=await database.select({name:pets.name,phone:owners.phone}).from(pets).innerJoin(owners,eq(pets.ownerId,owners.id)).where(eq(pets.id,reminder.petId)).limit(1);
       if(!patient)throw new Error('Missing patient');
+      let vaccineName=reminder.type==='vaccination'?reminder.title:'';
       let dueDate=new Intl.DateTimeFormat('en-CA',{timeZone:'Asia/Tehran'}).format(reminder.scheduledAt);
       if(reminder.vaccinationId) {
         const [vaccine]=await database.select().from(vaccinations).where(and(eq(vaccinations.id,reminder.vaccinationId),eq(vaccinations.petId,reminder.petId))).limit(1);
         if(!vaccine?.reminderEnabled||!vaccine.nextDueAt){await database.update(reminders).set({status:'cancelled',updatedAt:Date.now()}).where(eq(reminders.id,reminder.id));continue;}
-        dueDate=vaccine.nextDueAt;
+        dueDate=vaccine.nextDueAt;vaccineName=vaccine.vaccineName;
       }
       const deliveryId=crypto.randomUUID();
       await database.insert(smsDeliveries).values({id:deliveryId,reminderId:reminder.id,idempotencyKey:reminder.id,provider:config.smsProvider});
       const result=await provider.send({to:patient.phone,sender:config.farazSender,pattern:reminder.type==='vaccination'?config.vaccinePattern:config.taskPattern,
-        values:{pet:patient.name,date:reminder.dueAt?eventDateTime(reminder.dueAt):formatDate(dueDate),clinic:config.clinicName,phone:config.clinicPhone,action:reminder.title}});
+        values:{pet:patient.name,date:reminder.dueAt?eventDateTime(reminder.dueAt):formatDate(dueDate),clinic:config.clinicName,phone:config.clinicPhone,action:reminder.title,vaccine:vaccineName}});
       const accepted=result.status==='accepted';
       const lastError=accepted?null:result.reason;
       await database.batch([

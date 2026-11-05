@@ -305,7 +305,7 @@ test('each new record sends once on creation, then one independent claimed sched
   const [pet]=await db.select().from(pets);
   const config=structuredClone(defaultSettings);config.smsEnabled=true;config.smsProvider='faraz';
   config.vaccinePattern.code='approved-vaccine';config.taskPattern.code='approved-task';
-  config.vaccinePattern.parameters=['clinic','pet','date','phone'].map(name=>({name,variable:name}));
+  config.vaccinePattern.parameters=['clinic','pet','date','phone','vaccine'].map(name=>({name,variable:name}));
   config.taskPattern.parameters=['clinic','action','pet','date','phone'].map(name=>({name,variable:name}));
   await saveClinicSettings(config,'FAKE-ONLY');
   const original=globalThis.fetch;let sends=0;const sent=[];
@@ -317,7 +317,7 @@ test('each new record sends once on creation, then one independent claimed sched
     const date=eventDate(Date.now()+3*86400000);
     for(const kind of ['vaccine','reminder','visit']) {
       const id=crypto.randomUUID();ids.push(id);
-      const record={id,petId:pet.id,kind,title:kind==='visit'?'ویزیت مجدد':'آزمون برنامه',date:kind==='reminder'?date:todayISO(),nextDate:kind==='reminder'?'':date,dueTime:'14:30',notes:'',diagnosis:'',treatment:'',medications:'',completed:false};
+      const record={id,petId:pet.id,kind,title:kind==='visit'?'ویزیت مجدد':kind==='vaccine'?'هاری':'آزمون برنامه',date:kind==='reminder'?date:todayISO(),nextDate:kind==='reminder'?'':date,dueTime:'14:30',notes:'',diagnosis:'',treatment:'',medications:'',completed:false};
       await createRecord(record);
       const [delivery]=await db.select().from(smsDeliveries).where(eq(smsDeliveries.idempotencyKey,`record:${kind}:${id}:created`));
       assert.equal(delivery.status,'sent');
@@ -330,9 +330,15 @@ test('each new record sends once on creation, then one independent claimed sched
       await db.update(reminders).set({scheduledAt:Date.now()-1000}).where(eq(reminders.id,scheduled.id));
     }
     assert.equal(sends,3);assert.equal(sent[0].code,'approved-vaccine');
+    assert.equal(sent[0].attributes.vaccine,'هاری');
+    assert.equal(renderTemplate('نوع واکسن: {vaccine}',{vaccine:'هاری'}),'نوع واکسن: هاری');
     assert.equal(sent[1].code,'approved-task');assert.match(sent[1].attributes.date,/۱۴:۳۰/);
     await Promise.all([processDueReminders(),processDueReminders()]);
-    assert.equal(sends,6);await processDueReminders();assert.equal(sends,6);
+    assert.equal(sends,6);
+    assert.equal(sent.filter(message=>message.code==='approved-vaccine').length,2);
+    assert(sent.filter(message=>message.code==='approved-vaccine').every(message=>message.attributes.vaccine==='هاری'));
+    assert(sent.filter(message=>message.code==='approved-task').every(message=>!('vaccine' in message.attributes)));
+    await processDueReminders();assert.equal(sends,6);
     const snapshot=await clinicSnapshot();
     const task=snapshot.records.find(row=>row.id===ids[1]);assert.equal(task.date,date);assert.equal(task.dueTime,'14:30');
     assert.equal(task.notificationStatus,'sent');assert.equal(task.reminderStatus,'sent');

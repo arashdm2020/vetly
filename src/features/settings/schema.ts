@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { digits } from '@/lib/clinic';
-export const variableNames = ['pet', 'date', 'clinic', 'phone', 'action'] as const;
+export const variableNames = ['pet', 'date', 'clinic', 'phone', 'action', 'vaccine'] as const;
 const template = z.string().trim().min(1, 'متن پیامک را وارد کنید.').max(500, 'متن پیامک حداکثر ۵۰۰ نویسه است.')
   .refine(value => [...value.matchAll(/\{([^{}]+)\}/g)].every(match => variableNames.includes(match[1] as typeof variableNames[number])), 'متغیر ناشناخته در متن پیامک وجود دارد.');
 const pattern = z.object({
@@ -42,5 +42,5 @@ export const defaultSettings: ClinicSettings = {
   taskPattern: { text: 'یادآوری {clinic}\n{action} برای {pet} در تاریخ {date}\nتماس: {phone}', code: '', parameters: [{name:'token',variable:'pet'}, {name:'token2',variable:'date'}, {name:'token10',variable:'action'}] },
 };
 export function renderTemplate(text: string, values: Record<typeof variableNames[number], string>) {
-  return text.replace(/\{(pet|date|clinic|phone|action)\}/g, (_, name: typeof variableNames[number]) => values[name]);
+  return text.replace(/\{(pet|date|clinic|phone|action|vaccine)\}/g, (_, name: typeof variableNames[number]) => values[name]);
 }

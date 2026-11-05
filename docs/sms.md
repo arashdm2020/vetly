@@ -2,7 +2,7 @@
 
 The settings screen supports separate vaccine and task patterns, provider selection (Kavenegar, SMS.ir, disabled mock), key rotation, clinic details and the two-stage notification policy.
 
-Pattern text is a local reference/preview. Both real adapters send the approved provider pattern identifier and mapped parameters; the provider's approved template controls the actual text. Available variables are pet, date, clinic, phone and action. Medical diagnosis/treatment is never used in message variables.
+Pattern text is a local reference/preview. Both real adapters send the approved provider pattern identifier and mapped parameters; the provider's approved template controls the actual text. Available variables are pet, date, clinic, phone, action and vaccine. Medical diagnosis/treatment is never used in message variables.
 
 Kavenegar parameter names are token, token2, token3, token10 and token20; token is required. Follow the provider's token length and whitespace rules, using token10/token20 for values that require spaces. SMS.ir parameter names must exactly match the approved panel template; its pattern identifier is numeric.
 
@@ -89,3 +89,19 @@ Real requests use fixed HTTPS vendor endpoints, redirect rejection and an eight-
 
 - https://kavenegar.com/rest.html
 - https://sms.ir/rest-api/
+
+## Vaccine name in Faraz patterns
+
+`vaccine` is the recorded vaccine name (for example هاری) for both the initial
+notification and scheduled vaccination reminder. Scheduled sends read the linked
+vaccination name; legacy vaccination reminders without a link use their title.
+Other record kinds supply an empty vaccine value. Existing `action` mappings are
+preserved for compatibility. No database migration is needed.
+
+Add a variable named `vaccine` to the approved vaccination pattern in Faraz, for
+example: یادآوری {clinic}؛ موعد {vaccine} برای {pet}: {date}؛ تماس: {phone}.
+After provider approval, in Vetly Settings → SMS templates → Vaccination, add
+parameter name `vaccine` mapped to «نوع واکسن» and save the approved pattern code.
+Names are case sensitive: use the exact provider variable name if it differs.
+The local reference text can use `{vaccine}` for preview. Existing saved mappings
+are not changed automatically, so provider approval can precede activation.
