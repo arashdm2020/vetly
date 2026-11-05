@@ -162,3 +162,19 @@ test('sender selector requires choosing among multiple lines and handles refresh
 });
 
 test.after(async()=>{await act(async()=>root.unmount());dom.window.close();});
+
+test('patient deletion requires confirmation, cancellation sends nothing, failure keeps error; details edit uses original values',async()=>{
+  const {PatientDetailsEditor}=await import('../src/components/patient-details-editor.tsx');
+  await act(async()=>root.render(null));
+  const patient={id:'patient-id',name:'میلو',owner:'صاحب بیمار',species:'cat',phone:'09120000000'};
+  let deletes=0,edit;
+  context={settings:fresh(),busy:false,error:'',deletePatient:async()=>{deletes++;return false;},updatePatient:async input=>{edit=input;return true;}};
+  const renderEditor=()=>act(async()=>root.render(React.createElement(UIContext.Provider,{value:context},React.createElement(PatientDetailsEditor,{patient}))));
+  await renderEditor();await click(button('حذف بیمار'));assert.equal(deletes,0);
+  assert.match(document.querySelector('dialog').textContent,/قابل بازگشت نیست/);
+  await click([...document.querySelectorAll('dialog button')].find(b=>b.textContent==='انصراف'));assert.equal(deletes,0);
+  await click(button('حذف بیمار'));await click(button('تأیید حذف بیمار و سوابق'));assert.equal(deletes,1);
+  context={...context,error:'حذف انجام نشد'};await renderEditor();assert.match(document.querySelector('[role="alert"]').textContent,/حذف انجام نشد/);
+  await click(button('ویرایش اطلاعات بیمار'));await type(input('نام حیوان'),'نام جدید');await submit();
+  assert.equal(edit.patient.name,'نام جدید');assert.equal(edit.expected.name,'میلو');assert.equal(edit.patient.phone,undefined);
+});
