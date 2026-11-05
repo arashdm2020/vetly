@@ -27,7 +27,7 @@ export function SMSProviderSettings({form,savedSettings,keys,apiKey,setApiKey,up
 function SMSTest({savedSettings,dirty}:{savedSettings:ClinicSettings;dirty:boolean}) {
   const options=patternKeys.filter(key=>savedSettings[key].code);
   const [recipient,setRecipient]=useState(''),[pattern,setPattern]=useState<PatternKey>(options.includes('vaccinePattern')?'vaccinePattern':options[0]||'vaccinePattern');
-  const [values,setValues]=useState({pet:'آزمایش',date:formatDate(todayISO()),clinic:savedSettings.clinicName,phone:savedSettings.clinicPhone,action:'آزمایش'});
+  const [values,setValues]=useState({pet:'آزمایش',date:formatDate(todayISO()),clinic:savedSettings.clinicName,phone:savedSettings.clinicPhone,action:'آزمایش',vaccine:'هاری'});
   const [busy,setBusy]=useState(false),[confirm,setConfirm]=useState(false),[result,setResult]=useState<SmsResult>(),[error,setError]=useState('');
   const lock=useRef(false);
   const ready=!dirty&&savedSettings.smsProvider==='faraz'&&savedSettings.smsEnabled&&Boolean(savedSettings[pattern].code);
@@ -41,7 +41,7 @@ function SMSTest({savedSettings,dirty}:{savedSettings:ClinicSettings;dirty:boole
     {dirty&&<div className="inline-notice notice-warning"><Info size={17}/><p>قبل از تست، تغییرات تنظیمات را ذخیره کنید.</p></div>}
     {!savedSettings.smsEnabled&&<p className="form-hint">برای تست، ارسال پیامک را فعال و تنظیمات را ذخیره کنید.</p>}
     <fieldset disabled={busy}><div className="form-grid"><label>شماره موبایل خودتان<input type="tel" dir="ltr" value={recipient} onChange={event=>setRecipient(event.target.value)} maxLength={30} autoComplete="tel" placeholder="0912…"/></label><label>پترن ذخیره‌شده<select value={pattern} onChange={event=>setPattern(event.target.value as PatternKey)}>{options.length?options.map(key=><option key={key} value={key}>{patternTitles[key]} — {savedSettings[key].code}</option>):<option value="vaccinePattern">پترنی ذخیره نشده است</option>}</select></label></div>
-    <details className="test-values"><summary>مقادیر آزمایشی پارامترها</summary><div className="form-grid">{variableNames.map(name=><label key={name}>{variableLabels[name]}<input dir={name==='phone'?'ltr':undefined} value={values[name]} onChange={event=>setValues({...values,[name]:event.target.value})} maxLength={name==='phone'?30:name==='date'?40:name==='pet'?80:100}/></label>)}</div></details>
+    <details className="test-values"><summary>مقادیر آزمایشی پارامترها</summary><div className="form-grid">{variableNames.map(name=><label key={name}>{variableLabels[name]}<input dir={name==='phone'?'ltr':undefined} value={values[name]} onChange={event=>setValues({...values,[name]:event.target.value})} maxLength={name==='vaccine'?120:name==='phone'?30:name==='date'?40:name==='pet'?80:100}/></label>)}</div></details>
     <div className="form-actions"><button type="button" disabled={busy||!ready} onClick={()=>{setError('');if(!normalizePhone(recipient)){setError('شماره موبایل معتبر وارد کنید.');return;}if(Object.values(values).some(value=>!value.trim())){setError('تمام مقادیر آزمایشی را وارد کنید.');return;}setConfirm(true);}}><Send size={16}/><SavingLabel busy={busy} label="ارسال پیامک آزمایشی" pending="در حال ارسال…"/></button></div></fieldset>
     <p className="form-hint">این ارسال هزینه دارد. پذیرش سرویس به معنی تحویل نیست؛ در نتیجه نامشخص، پیش از تلاش جدید پنل فراز را بررسی کنید. درخواست خودکار تکرار نمی‌شود.</p>
     {error&&<p role="alert" className="error">{error}</p>}

@@ -36,7 +36,7 @@ export async function sendClaimedRegistrationSms(patient:{id:string;name:string;
     result=!config.smsEnabled||config.smsProvider==='mock'||!config.registrationPattern.code
       ?{status:'rejected',reason:'شماره ذخیره شد؛ ارسال پیامک یا پترن ثبت پرونده فعال نیست.'}
       :await smsProvider(config.smsProvider,await readSmsKey(config.smsProvider)).send({to:patient.phone,sender:config.farazSender,pattern:config.registrationPattern,
-        values:{clinic:config.clinicName,pet:patient.name,phone:config.clinicPhone,date:formatDate(todayISO()),action:'ثبت پرونده'}});
+        values:{clinic:config.clinicName,pet:patient.name,phone:config.clinicPhone,date:formatDate(todayISO()),action:'ثبت پرونده',vaccine:''}});
   } catch {result={status:'unknown',reason:'شماره ذخیره شد؛ نتیجه پیامک نامشخص است. پیش از تلاش جدید پنل پیامکی را بررسی کنید.'};}
   try {
     await database.update(smsDeliveries).set({status:result.status==='accepted'?'sent':result.status==='rejected'?'failed':result.status==='simulated'?'simulated':'unknown',

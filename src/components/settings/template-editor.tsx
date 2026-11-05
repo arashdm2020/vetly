@@ -7,13 +7,13 @@ import { FormSection, StatusBadge } from '@/components/workspace/primitives';
 export const patternKeys=['registrationPattern','vaccinePattern','taskPattern'] as const;
 export type PatternKey=typeof patternKeys[number];
 export const patternTitles={registrationPattern:'ثبت پرونده',vaccinePattern:'واکسیناسیون',taskPattern:'پیگیری و یادآوری'};
-export const variableLabels={pet:'نام حیوان',date:'تاریخ',clinic:'نام کلینیک',phone:'تلفن کلینیک',action:'عنوان پیگیری'};
+export const variableLabels={pet:'نام حیوان',date:'تاریخ',clinic:'نام کلینیک',phone:'تلفن کلینیک',action:'عنوان پیگیری',vaccine:'نوع واکسن'};
 
 export function SMSTemplateEditor({form,update,selected,onSelect,showErrors}:{form:ClinicSettings;update:(patch:Partial<ClinicSettings>)=>void;selected:PatternKey;onSelect:(key:PatternKey)=>void;showErrors:boolean}) {
   const id=useId(),[preview,setPreview]=useState(false),[removing,setRemoving]=useState<number|null>(null);
   const pattern=form[selected];
   const setPattern=(patch:Partial<typeof pattern>)=>update({[selected]:{...pattern,...patch}});
-  const sample={pet:'نام حیوان',date:'تاریخ موعد',clinic:form.clinicName,phone:form.clinicPhone||'تلفن کلینیک',action:'عنوان پیگیری'};
+  const sample={pet:'نام حیوان',date:'تاریخ موعد',clinic:form.clinicName,phone:form.clinicPhone||'تلفن کلینیک',action:'عنوان پیگیری',vaccine:'نوع واکسن'};
   return <><div className="pattern-tabs" role="tablist" aria-label="دسته قالب پیامک" onKeyDown={event=>{
     const index=patternKeys.indexOf(selected);let next=index;
     if(event.key==='ArrowLeft')next=(index+1)%3;else if(event.key==='ArrowRight')next=(index+2)%3;else if(event.key==='Home')next=0;else if(event.key==='End')next=2;else return;
@@ -25,6 +25,7 @@ export function SMSTemplateEditor({form,update,selected,onSelect,showErrors}:{fo
       <div className="form-grid"><label className="full-field">شناسه پترن<input dir="ltr" maxLength={80} value={pattern.code} onChange={event=>setPattern({code:event.target.value})} aria-invalid={showErrors&&form.smsEnabled&&selected!=='registrationPattern'&&!pattern.code} placeholder={form.smsProvider==='smsir'?'مثلاً 123456':'شناسه پترن تأییدشده'}/></label></div>
       <label>متن مرجع پیامک<textarea rows={4} maxLength={500} value={pattern.text} onChange={event=>setPattern({text:event.target.value})}/></label>
       <p className="form-hint">این متن برای پیش‌نمایش است؛ متن واقعی از پترن تأییدشده سرویس ارسال می‌شود.</p>
+      {selected==='vaccinePattern'&&<p className="form-hint">برای درج نام واکسن، متغیر vaccine را در پترن فراز تعریف و نام دقیق آن را به «نوع واکسن» نگاشت کنید. این مقدار از نام واکسن ثبت‌شده گرفته می‌شود و در پیامک هنگام ثبت و یادآوری استفاده می‌شود.</p>}
       <div className="template-variables" aria-label="متغیرهای قابل استفاده">{variableNames.map(name=><span className="pill" key={name}>{variableLabels[name]} <bdi>{'{'+name+'}'}</bdi></span>)}</div>
       <div className="parameter-heading"><h3>نگاشت پارامترها</h3><button type="button" disabled={pattern.parameters.length>=5} onClick={()=>setPattern({parameters:[...pattern.parameters,{name:'',variable:'pet'}]})}><Plus size={16}/> افزودن</button></div>
       <p className="form-hint">نام سمت راست برای سرویس ارسال می‌شود؛ مقدار از اطلاعات پرونده جایگزین می‌شود. نام‌ها خودکار تغییر نمی‌کنند.</p>

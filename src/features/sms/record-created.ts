@@ -23,7 +23,7 @@ export async function sendRecordCreatedSms(event:{id:string;petId:string;kind:'v
     const [patient]=await db.select({name:pets.name,phone:owners.phone}).from(pets).innerJoin(owners,eq(pets.ownerId,owners.id)).where(eq(pets.id,event.petId)).limit(1);
     if(!patient)throw new Error('Missing patient');
     const result=await smsProvider(config.smsProvider,await readSmsKey(config.smsProvider)).send({to:patient.phone,sender:config.farazSender,pattern,
-      values:{pet:patient.name,clinic:config.clinicName,phone:config.clinicPhone,date:eventDateTime(event.dueAt),action:event.title}});
+      values:{pet:patient.name,clinic:config.clinicName,phone:config.clinicPhone,date:eventDateTime(event.dueAt),action:event.title,vaccine:event.kind==='vaccine'?event.title:''}});
     await db.update(smsDeliveries).set({status:result.status==='accepted'?'sent':result.status==='rejected'?'failed':result.status==='simulated'?'simulated':'unknown',
       providerMessageId:result.status==='accepted'?result.messageId:null,sentAt:result.status==='accepted'?Date.now():null,
       lastError:result.status==='accepted'?null:result.reason,updatedAt:Date.now()}).where(eq(smsDeliveries.id,deliveryId));
