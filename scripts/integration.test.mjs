@@ -507,3 +507,52 @@ test('phone update failure rolls back the delivery claim and never sends',async(
     assert.equal((await clinicSnapshot()).patients.find(p=>p.id===patient.id).phone,patient.phone);
   }finally{await db.$client.execute('DROP TRIGGER fail_phone_edit');}
 });
+
+test('patient details edit preserves phone and clinical history; stale and invalid edits fail',async()=>{
+  const {updatePatient}=await import('../src/features/patients/manage.ts');
+  await saveClinicSettings(defaultSettings,'');
+  const patient=await createPatient({name:'ویرایش',species:'cat',owner:'صاحب اولیه',phone:'09120000001'});
+  const {id,phone,...expected}=patient;const before=(await db.select().from(smsDeliveries)).length;
+  const next={name:'نام جدید',owner:'صاحب جدید',species:'dog'};
+  await updatePatient({id,expected,patient:next});
+  const saved=(await clinicSnapshot()).patients.find(p=>p.id===id);
+  assert.equal(saved.name,next.name);assert.equal(saved.owner,next.owner);assert.equal(saved.species,'dog');assert.equal(saved.phone,phone);
+  assert.equal((await db.select().from(smsDeliveries)).length,before);
+  await assert.rejects(updatePatient({id,expected,patient:next}),/تغییر کرده/);
+  await assert.rejects(updatePatient({id,expected:next,patient:{...next,name:''}}));
+  await assert.rejects(updatePatient({id,expected:next,patient:{...next,species:'other',customSpecies:'تنظیم نشده'}}));
+});
+
+test('patient deletion removes only dependent clinical data, preserves sibling and SMS audit, and rolls back on failure',async()=>{
+  const {deletePatient}=await import('../src/features/patients/manage.ts');
+  await saveClinicSettings(defaultSettings,'');
+  const patient=await createPatient({name:'حذف',species:'cat',owner:'صاحب مشترک',phone:'09120000002'});
+  const [pet]=await db.select().from(pets).where(eq(pets.id,patient.id));
+  const sibling=crypto.randomUUID();await db.insert(pets).values({id:sibling,ownerId:pet.ownerId,name:'باقی',species:'dog'});
+  const recordId=crypto.randomUUID();
+  await createRecord({id:recordId,petId:pet.id,kind:'vaccine',title:'هاری',date:todayISO(),nextDate:eventDate(Date.now()+3*86400000),dueTime:'14:30',notes:'',diagnosis:'',treatment:'',medications:'',completed:false});
+  await db.insert(appointments).values({petId:pet.id,scheduledAt:Date.now()+86400000});
+  const [reminder]=await db.select().from(reminders).where(eq(reminders.petId,pet.id));
+  const audit=crypto.randomUUID();await db.insert(smsDeliveries).values({id:audit,reminderId:reminder.id,provider:'faraz',idempotencyKey:audit,status:'sent',providerMessageId:'12345'});
+  await db.update(reminders).set({status:'processing'}).where(eq(reminders.id,reminder.id));
+  await assert.rejects(deletePatient(pet.id),/در حال بررسی/);
+  await db.update(reminders).set({status:'pending'}).where(eq(reminders.id,reminder.id));
+  await db.$client.execute("CREATE TRIGGER fail_patient_delete BEFORE DELETE ON pets BEGIN SELECT RAISE(ABORT,'test rollback'); END");
+  try {await assert.rejects(deletePatient(pet.id));assert.equal((await db.select().from(reminders).where(eq(reminders.petId,pet.id))).length,1);}
+  finally {await db.$client.execute('DROP TRIGGER fail_patient_delete');}
+  await deletePatient(pet.id);
+  for(const table of [visits,vaccinations,reminders,appointments])assert.equal((await db.select().from(table).where(eq(table.petId,pet.id))).length,0);
+  assert.equal((await db.select().from(pets).where(eq(pets.id,pet.id))).length,0);
+  assert.equal((await db.select().from(pets).where(eq(pets.id,sibling))).length,1);
+  assert.equal((await db.select().from(owners).where(eq(owners.id,pet.ownerId))).length,1);
+  const [savedAudit]=await db.select().from(smsDeliveries).where(eq(smsDeliveries.id,audit));
+  assert.equal(savedAudit.reminderId,null);assert.equal(savedAudit.providerMessageId,'12345');
+  await deletePatient(sibling);assert.equal((await db.select().from(owners).where(eq(owners.id,pet.ownerId))).length,0);
+});
+
+test('patient edit and delete actions reject unauthenticated callers before mutations',async()=>{
+  const {editPatient,removePatient}=await import('../src/features/clinic/actions.ts');
+  const before=await db.select().from(pets);
+  assert.equal((await editPatient({})).ok,false);assert.equal((await removePatient(before[0].id)).ok,false);
+  assert.deepEqual(await db.select().from(pets),before);
+});

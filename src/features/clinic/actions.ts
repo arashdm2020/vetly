@@ -1,4 +1,5 @@
 'use server';
+import { updatePatient, deletePatient } from '@/features/patients/manage';
 import { changePatientPhone } from '@/features/patients/change-phone';
 import { z } from 'zod';
 import { requireClinic } from '@/lib/auth';
@@ -36,3 +37,6 @@ export async function editPatientPhone(input:unknown) {
     return {ok:false as const,error:error instanceof z.ZodError?'شماره موبایل معتبر وارد کنید.':/^[آ-ی]/.test(message)?message:'نتیجه ذخیره مشخص نیست؛ پیش از تلاش مجدد صفحه و پنل پیامکی را بررسی کنید.'};
   }
 }
+
+export async function editPatient(input:unknown) {return mutation(()=>updatePatient(input));}
+export async function removePatient(id:string) {return mutation(()=>deletePatient(id));}

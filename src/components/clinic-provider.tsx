@@ -3,13 +3,14 @@ import { createContext, useContext, useRef, useState } from 'react';
 import type { Patient, RecordEntry } from '@/lib/clinic';
 import type { ClinicSnapshot } from '@/features/clinic/service';
 import type { ClinicSettings } from '@/features/settings/schema';
-import { registerPatient, registerRecord, finishReminder, updateSettings, editPatientPhone } from '@/features/clinic/actions';
+import { registerPatient, registerRecord, finishReminder, updateSettings, editPatientPhone, editPatient, removePatient } from '@/features/clinic/actions';
 
 import type { ChangePatientPhoneInput } from '@/features/patients/schema';
 import type { PhoneChangeResult } from '@/features/patients/change-phone';
 
 type Context = ClinicSnapshot & {
   busy:boolean; error:string;
+  updatePatient:(input:unknown)=>Promise<boolean>; deletePatient:(id:string)=>Promise<boolean>;
   editPhone:(input:ChangePatientPhoneInput)=>Promise<PhoneChangeResult|null>;
   addPatient:(patient:Patient)=>Promise<boolean>; addRecord:(record:RecordEntry)=>Promise<boolean>;
   completeReminder:(id:string)=>Promise<boolean>; saveSettings:(settings:ClinicSettings,key:string)=>Promise<boolean>;
@@ -34,6 +35,8 @@ export function ClinicProvider({children,initial}:{children:React.ReactNode;init
       finally {lock.current=false;setBusy(false);}
     },
     addPatient:({id: _id,...patient})=>{void _id;return mutate(()=>registerPatient(patient));},
+    updatePatient:input=>mutate(()=>editPatient(input)),
+    deletePatient:id=>mutate(()=>removePatient(id)),
     addRecord:record=>mutate(()=>registerRecord(record)),
     completeReminder:id=>mutate(()=>finishReminder(id)),
     saveSettings:(settings,key)=>mutate(()=>updateSettings(settings,key)),
